@@ -211,13 +211,14 @@ class FolderTableViewController: UITableViewController, NSFetchedResultsControll
         var result: [Folder] = []
         for folder in folders {
             result.append(folder)
-            if expandedState[folder.objectID] == true,
-               let children = (folder.children as? Set<Folder>)?.sorted(by: { $0.sortIndex < $1.sortIndex }) {
+            if expandedState[folder.objectID] == true {
+                let children = (folder.children?.allObjects as? [Folder])?.sorted { $0.sortIndex < $1.sortIndex } ?? []
                 result.append(contentsOf: flatten(folders: children))
             }
         }
         return result
     }
+
 
     private func getLevel(of folder: Folder) -> Int {
         var level = 0
