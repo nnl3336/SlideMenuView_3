@@ -8,10 +8,13 @@
 import SwiftUI
 
 class CustomCell: UITableViewCell {
+
     let iconView = UIImageView()
     let titleLabel = UILabel()
-    let arrowImageView = UIImageView() // ← 追加
+    let arrowImageView = UIImageView()
     var leadingConstraint: NSLayoutConstraint!
+    
+    var arrowTapAction: (() -> Void)?  // ← タップ用クロージャ
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -20,10 +23,11 @@ class CustomCell: UITableViewCell {
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         arrowImageView.translatesAutoresizingMaskIntoConstraints = false
         arrowImageView.tintColor = .gray
+        arrowImageView.isUserInteractionEnabled = true
 
         contentView.addSubview(iconView)
         contentView.addSubview(titleLabel)
-        contentView.addSubview(arrowImageView) // ← 追加
+        contentView.addSubview(arrowImageView)
 
         leadingConstraint = iconView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16)
         NSLayoutConstraint.activate([
@@ -40,13 +44,23 @@ class CustomCell: UITableViewCell {
             arrowImageView.widthAnchor.constraint(equalToConstant: 12),
             arrowImageView.heightAnchor.constraint(equalToConstant: 12)
         ])
+        
+        let tap = UITapGestureRecognizer(target: self, action: #selector(didTapArrow))
+        arrowImageView.addGestureRecognizer(tap)
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    func configure(with folder: Folder, isExpanded: Bool) {
+    @objc private func didTapArrow() {
+        arrowTapAction?()
+    }
+
+    func configure(with folder: Folder, level: Int, isExpanded: Bool) {
         titleLabel.text = folder.folderName
-        arrowImageView.isHidden = (folder.children?.count ?? 0) == 0
+        leadingConstraint.constant = 16 + CGFloat(level) * 20
+        
+        let hasChildren = (folder.children?.count ?? 0) > 0
+        arrowImageView.isHidden = !hasChildren
         arrowImageView.image = UIImage(systemName: isExpanded ? "chevron.down" : "chevron.right")
     }
 }

@@ -240,46 +240,46 @@ class FolderTableViewController: UITableViewController, NSFetchedResultsControll
         let cell = tableView.dequeueReusableCell(withIdentifier: "cell", for: indexPath) as! CustomCell
 
         let level = getLevel(of: folder)
-        cell.indentationLevel = level
-        cell.indentationWidth = 20
-        cell.configure(with: folder, isExpanded: expandedState[folder.objectID] ?? false)
+        let isExpanded = expandedState[folder.objectID] ?? false
+        cell.configure(with: folder, level: level, isExpanded: isExpanded)
+
+        // 矢印タップで開閉
+        cell.arrowTapAction = { [weak self] in
+            self?.toggleFolder(for: folder)
+        }
 
         return cell
     }
 
 
 
+
     // MARK: - Toggle Folder
 
-    @objc private func toggleFolder(_ sender: UITapGestureRecognizer) {
-        guard let row = sender.view?.tag else { return }
-        let folder = flatData[row]
+    private func toggleFolder(for folder: Folder) {
         let isExpanded = expandedState[folder.objectID] ?? false
         expandedState[folder.objectID] = !isExpanded
 
-        let startIndex = row + 1
-        var indexPaths: [IndexPath] = []
+        guard let row = flatData.firstIndex(of: folder) else { return }
 
         let children = (folder.children as? Set<Folder>)?.sorted(by: { $0.sortIndex < $1.sortIndex }) ?? []
 
         tableView.beginUpdates()
         if !isExpanded {
-            // 展開
-            flatData.insert(contentsOf: children, at: startIndex)
-            indexPaths = children.indices.map { IndexPath(row: startIndex + $0, section: 0) }
+            flatData.insert(contentsOf: children, at: row + 1)
+            let indexPaths = children.indices.map { IndexPath(row: row + 1 + $0, section: 0) }
             tableView.insertRows(at: indexPaths, with: .fade)
         } else {
-            // 折りたたみ
-            flatData.removeSubrange(startIndex..<startIndex + children.count)
-            indexPaths = children.indices.map { IndexPath(row: startIndex + $0, section: 0) }
+            flatData.removeSubrange(row + 1 ..< row + 1 + children.count)
+            let indexPaths = children.indices.map { IndexPath(row: row + 1 + $0, section: 0) }
             tableView.deleteRows(at: indexPaths, with: .fade)
         }
         tableView.endUpdates()
 
         // 矢印アニメーション
-        if let arrow = tableView.cellForRow(at: IndexPath(row: row, section: 0))?.accessoryView as? UIImageView {
+        if let cell = tableView.cellForRow(at: IndexPath(row: row, section: 0)) as? CustomCell {
             UIView.animate(withDuration: 0.25) {
-                arrow.transform = !isExpanded ? CGAffineTransform(rotationAngle: .pi/2) : .identity
+                cell.arrowImageView.transform = !isExpanded ? CGAffineTransform(rotationAngle: .pi/2) : .identity
             }
         }
     }
