@@ -42,6 +42,118 @@ class FolderTableViewController: UITableViewController, NSFetchedResultsControll
 
     
     //***
+    
+    // クラス内プロパティ（既存の var 宣言のそばに追加）
+    var suppressFRCUpdates = false
+
+    // 既存の controllerDidChangeContent を次のように置き換えてください
+    func controllerDidChangeContent(_ controller: NSFetchedResultsController<NSFetchRequestResult>) {
+        // 自分で手動更新中は FRC の自動反映を無視
+        if suppressFRCUpdates { return }
+
+        if let objects = frc.fetchedObjects {
+            flatData = flatten(folders: objects.filter { $0.parent == nil })
+            tableView.reloadData()
+        }
+    }
+
+    // FolderTableViewController に以下のメソッドを追加してください
+    func addChildFolder(to parent: Folder) {
+        let alert = UIAlertController(title: "子フォルダ名を入力", message: nil, preferredStyle: .alert)
+        alert.addTextField { $0.placeholder = "新しい子フォルダ名" }
+        alert.addAction(UIAlertAction(title: "キャンセル", style: .cancel))
+        alert.addAction(UIAlertAction(title: "追加", style: .default, handler: { [weak self] _ in
+            guard let self = self else { return }
+            guard let text = alert.textFields?.first?.text, !text.isEmpty else { return }
+
+            // 保存中に FRC の自動反映を抑制
+            self.suppressFRCUpdates = true
+
+            // 新しいフォルダを作る
+            let newFolder = Folder(context: self.context)
+            newFolder.folderName = text
+            newFolder.parent = parent
+            parent.addToChildren(newFolder)   // ← これを追加
+
+            // 親の既存 children 数を元に sortIndex を設定（末尾に追加）
+            let currentChildCount = (parent.children as? Set<Folder>)?.count ?? 0
+            newFolder.sortIndex = Int64(currentChildCount)
+
+            do {
+                try self.context.save()
+            } catch {
+                print("子フォルダ保存失敗: \(error)")
+                self.suppressFRCUpdates = false
+                return
+            }
+
+            DispatchQueue.main.async {
+                // 古い表示配列を保持
+                let oldFlat = self.flatData
+
+                // 自動で親を展開する（不要ならこの行を外す）
+                self.expandedState[parent.objectID] = true
+
+                // 新しい fetchedObjects から新しい flatData を作る
+                guard let objects = self.frc.fetchedObjects else {
+                    self.suppressFRCUpdates = false
+                    return
+                }
+                let newFlat = self.flatten(folders: objects.filter { $0.parent == nil })
+
+                // 差分（新しく追加された objectID）を見つける
+                let oldIDs = Set(oldFlat.map { $0.objectID })
+                var insertIndexPaths: [IndexPath] = []
+                for (i, f) in newFlat.enumerated() {
+                    if !oldIDs.contains(f.objectID) {
+                        insertIndexPaths.append(IndexPath(row: i, section: 0))
+                    }
+                }
+
+                // data source を先に更新してから table に反映（重要）
+                self.flatData = newFlat
+
+                if !insertIndexPaths.isEmpty {
+                    self.tableView.beginUpdates()
+                    self.tableView.insertRows(at: insertIndexPaths, with: .automatic)
+                    self.tableView.endUpdates()
+
+                    // optional: 新しく追加された行までスクロール
+                    if let last = insertIndexPaths.last {
+                        self.tableView.scrollToRow(at: last, at: .middle, animated: true)
+                    }
+                } else {
+                    // 差分が見つからなければ安全にリロード
+                    self.tableView.reloadData()
+                }
+
+                // 抑制フラグを戻す
+                self.suppressFRCUpdates = false
+            }
+        }))
+
+        present(alert, animated: true)
+    }
+
+    
+    // MARK: - Context Menu　コンテキストメニュー
+    override func tableView(_ tableView: UITableView,
+                            contextMenuConfigurationForRowAt indexPath: IndexPath,
+                            point: CGPoint) -> UIContextMenuConfiguration? {
+        guard indexPath.row < flatData.count else { return nil }
+        let folder = flatData[indexPath.row]
+
+        return UIContextMenuConfiguration(identifier: nil,
+                                          previewProvider: nil) { _ in
+            let addChild = UIAction(title: "子フォルダを追加",
+                                    image: UIImage(systemName: "folder.badge.plus")) { [weak self] _ in
+                self?.addChildFolder(to: folder)
+            }
+
+            return UIMenu(title: "", children: [addChild])
+        }
+    }
+
 
     private func setupFRC() {
         let request: NSFetchRequest<Folder> = Folder.fetchRequest()
@@ -66,7 +178,7 @@ class FolderTableViewController: UITableViewController, NSFetchedResultsControll
         }
     }
     
-    // MARK: - Add Folder
+    // MARK: - Add Folder　フォルダ追加
     @objc private func addFolder() {
         let alert = UIAlertController(title: "新しいフォルダ", message: "名前を入力してください", preferredStyle: .alert)
         alert.addTextField { $0.placeholder = "フォルダ名" }
@@ -122,36 +234,20 @@ class FolderTableViewController: UITableViewController, NSFetchedResultsControll
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         flatData.count
     }
-
-    override func tableView(_ tableView: UITableView,
-                            cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+// MARK: - セル表示
+    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let folder = flatData[indexPath.row]
         let cell = tableView.dequeueReusableCell(withIdentifier: "cell", for: indexPath) as! CustomCell
 
         let level = getLevel(of: folder)
         cell.indentationLevel = level
         cell.indentationWidth = 20
-        cell.titleLabel.text = folder.folderName
-
-        if let children = folder.children as? Set<Folder>, !children.isEmpty {
-            let arrow = UIImageView()
-            arrow.image = expandedState[folder.objectID] == true ?
-                UIImage(named: "arrow_open") :
-                UIImage(named: "arrow_closed")
-            arrow.isUserInteractionEnabled = true
-            arrow.tag = indexPath.row
-
-            let tap = UITapGestureRecognizer(target: self, action: #selector(toggleFolder(_:)))
-            arrow.addGestureRecognizer(tap)
-            cell.accessoryView = arrow
-            cell.iconView.image = UIImage(systemName: "folder.fill")
-        } else {
-            cell.accessoryView = nil
-            cell.iconView.image = UIImage(systemName: "doc.fill")
-        }
+        cell.configure(with: folder, isExpanded: expandedState[folder.objectID] ?? false)
 
         return cell
     }
+
+
 
     // MARK: - Toggle Folder
 
@@ -190,44 +286,16 @@ class FolderTableViewController: UITableViewController, NSFetchedResultsControll
 
     // MARK: - NSFetchedResultsControllerDelegate
 
-    func controllerDidChangeContent(_ controller: NSFetchedResultsController<NSFetchRequestResult>) {
+    /*func controllerDidChangeContent(_ controller: NSFetchedResultsController<NSFetchRequestResult>) {
         if let objects = frc.fetchedObjects {
             flatData = flatten(folders: objects.filter { $0.parent == nil })
             tableView.reloadData() // 差分更新に変えるとさらにアニメーション対応可能
         }
-    }
+    }*/
 }
 
 
-class CustomCell: UITableViewCell {
-    let iconView = UIImageView()
-    let titleLabel = UILabel()
-    
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
-        
-        contentView.addSubview(iconView)
-        contentView.addSubview(titleLabel)
-        
-        iconView.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        
-        NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
-            iconView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 20),
-            iconView.heightAnchor.constraint(equalToConstant: 20),
-            
-            titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8),
-            titleLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -20)
-        ])
-    }
-    
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-}
+
 
 
 // SwiftUI Preview / 使用例
