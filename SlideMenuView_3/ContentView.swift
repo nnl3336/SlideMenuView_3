@@ -17,7 +17,7 @@ class FolderTableViewController: UITableViewController, NSFetchedResultsControll
     var flatData: [Folder] = []
     var expandedState: [NSManagedObjectID: Bool] = [:]
     
-    //private(set) var rootFolders: [Folder] = []
+    private(set) var rootFolders: [Folder] = []
 
     //***
 
@@ -58,31 +58,33 @@ class FolderTableViewController: UITableViewController, NSFetchedResultsControll
     }
     
     // MARK: - Add Folder
-        @objc private func addFolder() {
-            let alert = UIAlertController(title: "新しいフォルダ", message: "名前を入力してください", preferredStyle: .alert)
-            alert.addTextField { $0.placeholder = "フォルダ名" }
-            
-            alert.addAction(UIAlertAction(title: "キャンセル", style: .cancel))
-            alert.addAction(UIAlertAction(title: "追加", style: .default, handler: { [weak self] _ in
-                guard let self = self else { return }
-                let name = alert.textFields?.first?.text ?? "無題"
-                
-                // 新しいフォルダを作成
-                let newFolder = Folder(context: self.context)
-                newFolder.folderName = name
-                newFolder.sortIndex = (self.rootFolders.last?.sortIndex ?? -1) + 1
-                
-                do { try self.context.save() } catch { print(error) }
-                
-                // 再読み込み
-                self.fetchRootFolders()
-                self.flatData = self.flatten(folders: self.rootFolders)
-                self.tableView.reloadData()
-            }))
-            
-            present(alert, animated: true)
-        }
+    @objc private func addFolder() {
+        let alert = UIAlertController(title: "新しいフォルダ", message: "名前を入力してください", preferredStyle: .alert)
+        alert.addTextField { $0.placeholder = "フォルダ名" }
 
+        alert.addAction(UIAlertAction(title: "キャンセル", style: .cancel))
+        alert.addAction(UIAlertAction(title: "追加", style: .default, handler: { [weak self] _ in
+            guard let self = self else { return }
+            let name = alert.textFields?.first?.text ?? "無題"
+
+            // 新しいフォルダを作成
+            let newFolder = Folder(context: self.context)
+            newFolder.folderName = name
+            newFolder.sortIndex = (self.flatData.last?.sortIndex ?? -1) + 1
+
+            do { try self.context.save() } catch { print(error) }
+
+            // FRC から再取得
+            if let objects = self.frc.fetchedObjects {
+                self.flatData = self.flatten(folders: objects.filter { $0.parent == nil })
+                self.tableView.reloadData()
+            }
+        }))
+
+        present(alert, animated: true)
+    }
+
+    
     // MARK: - Flatten
 
     private func flatten(folders: [Folder]) -> [Folder] {
