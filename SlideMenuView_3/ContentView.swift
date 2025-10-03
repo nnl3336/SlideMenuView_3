@@ -9,55 +9,94 @@ import SwiftUI
 import CoreData
 import UIKit
 
-class FolderTableViewController: UITableViewController {
-    
+class FolderTableViewController: UITableViewController, NSFetchedResultsControllerDelegate {
+
     var context: NSManagedObjectContext!
-    
-    var rootFolders: [Folder] = []
+
+    var frc: NSFetchedResultsController<Folder>!
     var flatData: [Folder] = []
     var expandedState: [NSManagedObjectID: Bool] = [:]
     
+    //private(set) var rootFolders: [Folder] = []
+
+    //***
+
     override func viewDidLoad() {
         super.viewDidLoad()
-        
         tableView.register(CustomCell.self, forCellReuseIdentifier: "cell")
-        title = "Folders"
+        setupFRC()
         
         // 追加ボタン
         navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .add,
                                                             target: self,
                                                             action: #selector(addFolder))
-        
-        fetchRootFolders()
-        flatData = flatten(folders: rootFolders)
     }
     
-    // MARK: - Fetch
-    private func fetchRootFolders() {
+    //***
+
+    private func setupFRC() {
         let request: NSFetchRequest<Folder> = Folder.fetchRequest()
-        request.predicate = NSPredicate(format: "parent == nil")
-        request.sortDescriptors = [NSSortDescriptor(key: "sortIndex", ascending: true)]
-        
+        request.sortDescriptors = [
+            NSSortDescriptor(key: "sortIndex", ascending: true),
+            NSSortDescriptor(key: "folderName", ascending: true)
+        ]
+
+        frc = NSFetchedResultsController(fetchRequest: request,
+                                         managedObjectContext: context,
+                                         sectionNameKeyPath: nil,
+                                         cacheName: nil)
+        frc.delegate = self
+
         do {
-            rootFolders = try context.fetch(request)
+            try frc.performFetch()
+            if let objects = frc.fetchedObjects {
+                flatData = flatten(folders: objects.filter { $0.parent == nil })
+            }
         } catch {
-            print("Fetch error: \(error)")
+            print("FRC fetch error: \(error)")
         }
     }
     
+    // MARK: - Add Folder
+        @objc private func addFolder() {
+            let alert = UIAlertController(title: "新しいフォルダ", message: "名前を入力してください", preferredStyle: .alert)
+            alert.addTextField { $0.placeholder = "フォルダ名" }
+            
+            alert.addAction(UIAlertAction(title: "キャンセル", style: .cancel))
+            alert.addAction(UIAlertAction(title: "追加", style: .default, handler: { [weak self] _ in
+                guard let self = self else { return }
+                let name = alert.textFields?.first?.text ?? "無題"
+                
+                // 新しいフォルダを作成
+                let newFolder = Folder(context: self.context)
+                newFolder.folderName = name
+                newFolder.sortIndex = (self.rootFolders.last?.sortIndex ?? -1) + 1
+                
+                do { try self.context.save() } catch { print(error) }
+                
+                // 再読み込み
+                self.fetchRootFolders()
+                self.flatData = self.flatten(folders: self.rootFolders)
+                self.tableView.reloadData()
+            }))
+            
+            present(alert, animated: true)
+        }
+
+    // MARK: - Flatten
+
     private func flatten(folders: [Folder]) -> [Folder] {
         var result: [Folder] = []
         for folder in folders {
             result.append(folder)
-            if expandedState[folder.objectID] == true {
-                let children = (folder.children as? Set<Folder>)?
-                    .sorted { $0.sortIndex < $1.sortIndex } ?? []
+            if expandedState[folder.objectID] == true,
+               let children = (folder.children as? Set<Folder>)?.sorted(by: { $0.sortIndex < $1.sortIndex }) {
                 result.append(contentsOf: flatten(folders: children))
             }
         }
         return result
     }
-    
+
     private func getLevel(of folder: Folder) -> Int {
         var level = 0
         var current = folder.parent
@@ -67,77 +106,88 @@ class FolderTableViewController: UITableViewController {
         }
         return level
     }
-    
+
     // MARK: - UITableViewDataSource
+
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         flatData.count
     }
-    
+
     override func tableView(_ tableView: UITableView,
                             cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let folder = flatData[indexPath.row]
         let cell = tableView.dequeueReusableCell(withIdentifier: "cell", for: indexPath) as! CustomCell
-        
+
         let level = getLevel(of: folder)
         cell.indentationLevel = level
         cell.indentationWidth = 20
         cell.titleLabel.text = folder.folderName
-        
-        if let children = folder.children, children.count > 0 {
+
+        if let children = folder.children as? Set<Folder>, !children.isEmpty {
             let arrow = UIImageView()
             arrow.image = expandedState[folder.objectID] == true ?
                 UIImage(named: "arrow_open") :
                 UIImage(named: "arrow_closed")
             arrow.isUserInteractionEnabled = true
             arrow.tag = indexPath.row
-            arrow.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(toggleFolder(_:))))
+
+            let tap = UITapGestureRecognizer(target: self, action: #selector(toggleFolder(_:)))
+            arrow.addGestureRecognizer(tap)
             cell.accessoryView = arrow
             cell.iconView.image = UIImage(systemName: "folder.fill")
         } else {
             cell.accessoryView = nil
             cell.iconView.image = UIImage(systemName: "doc.fill")
         }
-        
+
         return cell
     }
-    
+
     // MARK: - Toggle Folder
+
     @objc private func toggleFolder(_ sender: UITapGestureRecognizer) {
         guard let row = sender.view?.tag else { return }
         let folder = flatData[row]
         let isExpanded = expandedState[folder.objectID] ?? false
         expandedState[folder.objectID] = !isExpanded
-        
-        flatData = flatten(folders: rootFolders)
-        tableView.reloadData()
+
+        let startIndex = row + 1
+        var indexPaths: [IndexPath] = []
+
+        let children = (folder.children as? Set<Folder>)?.sorted(by: { $0.sortIndex < $1.sortIndex }) ?? []
+
+        tableView.beginUpdates()
+        if !isExpanded {
+            // 展開
+            flatData.insert(contentsOf: children, at: startIndex)
+            indexPaths = children.indices.map { IndexPath(row: startIndex + $0, section: 0) }
+            tableView.insertRows(at: indexPaths, with: .fade)
+        } else {
+            // 折りたたみ
+            flatData.removeSubrange(startIndex..<startIndex + children.count)
+            indexPaths = children.indices.map { IndexPath(row: startIndex + $0, section: 0) }
+            tableView.deleteRows(at: indexPaths, with: .fade)
+        }
+        tableView.endUpdates()
+
+        // 矢印アニメーション
+        if let arrow = tableView.cellForRow(at: IndexPath(row: row, section: 0))?.accessoryView as? UIImageView {
+            UIView.animate(withDuration: 0.25) {
+                arrow.transform = !isExpanded ? CGAffineTransform(rotationAngle: .pi/2) : .identity
+            }
+        }
     }
-    
-    // MARK: - Add Folder
-    @objc private func addFolder() {
-        let alert = UIAlertController(title: "新しいフォルダ", message: "名前を入力してください", preferredStyle: .alert)
-        alert.addTextField { $0.placeholder = "フォルダ名" }
-        
-        alert.addAction(UIAlertAction(title: "キャンセル", style: .cancel))
-        alert.addAction(UIAlertAction(title: "追加", style: .default, handler: { [weak self] _ in
-            guard let self = self else { return }
-            let name = alert.textFields?.first?.text ?? "無題"
-            
-            // 新しいフォルダを作成
-            let newFolder = Folder(context: self.context)
-            newFolder.folderName = name
-            newFolder.sortIndex = (self.rootFolders.last?.sortIndex ?? -1) + 1
-            
-            do { try self.context.save() } catch { print(error) }
-            
-            // 再読み込み
-            self.fetchRootFolders()
-            self.flatData = self.flatten(folders: self.rootFolders)
-            self.tableView.reloadData()
-        }))
-        
-        present(alert, animated: true)
+
+    // MARK: - NSFetchedResultsControllerDelegate
+
+    func controllerDidChangeContent(_ controller: NSFetchedResultsController<NSFetchRequestResult>) {
+        if let objects = frc.fetchedObjects {
+            flatData = flatten(folders: objects.filter { $0.parent == nil })
+            tableView.reloadData() // 差分更新に変えるとさらにアニメーション対応可能
+        }
     }
 }
+
 
 class CustomCell: UITableViewCell {
     let iconView = UIImageView()
