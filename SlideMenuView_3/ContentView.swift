@@ -24,13 +24,22 @@ class FolderTableViewController: UITableViewController, NSFetchedResultsControll
     override func viewDidLoad() {
         super.viewDidLoad()
         tableView.register(CustomCell.self, forCellReuseIdentifier: "cell")
+
         setupFRC()
-        
+
+        // fetchedObjects から rootFolders を取り出して flatData を作成
+        if let objects = frc?.fetchedObjects {
+            flatData = flatten(folders: objects.filter { $0.parent == nil })
+        }
+
         // 追加ボタン
-        navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .add,
-                                                            target: self,
-                                                            action: #selector(addFolder))
+        navigationItem.rightBarButtonItem = UIBarButtonItem(
+            barButtonSystemItem: .add,
+            target: self,
+            action: #selector(addFolder)
+        )
     }
+
     
     //***
 
@@ -86,7 +95,6 @@ class FolderTableViewController: UITableViewController, NSFetchedResultsControll
 
     
     // MARK: - Flatten
-
     private func flatten(folders: [Folder]) -> [Folder] {
         var result: [Folder] = []
         for folder in folders {
