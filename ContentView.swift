@@ -332,7 +332,6 @@ class FolderTableViewController: UITableViewController, NSFetchedResultsControll
 
         } else {
             // ----- 折りたたみ -----
-            // 削除すべき行のインデックスを取得（現在表示されている descendant 全部）
             let indicesToDelete = indicesOfDescendantsInFlatData(startingAt: row, parentLevel: parentLevel)
             guard !indicesToDelete.isEmpty else {
                 expandedState[folder.objectID] = false
@@ -345,24 +344,23 @@ class FolderTableViewController: UITableViewController, NSFetchedResultsControll
                 return
             }
 
-            // indexPaths を作る（基は old indices）
             let indexPaths = indicesToDelete.map { IndexPath(row: $0, section: 0) }
 
-            // 1) 削除する descendant の expandedState を false にしておく
-            //    （再帰的に内部状態をクリア）
-            if let objects = indicesToDelete.map({ flatData[$0] }) as? [Folder] {
-                for f in objects { expandedState[f.objectID] = false }
-            }
-            // さらに subtree の expandedState も完全に消す（安全措置）
-            collapseAllDescendantsState(of: folder)
+            // ❌ 展開状態を全て false にする処理を削除！
+            // if let objects = indicesToDelete.map({ flatData[$0] }) as? [Folder] {
+            //     for f in objects { expandedState[f.objectID] = false }
+            // }
+            // collapseAllDescendantsState(of: folder)
 
-            // 2) dataSource を先に更新（後ろから削る）
+            // ✅ 自分（親フォルダ）だけ閉じる
+            expandedState[folder.objectID] = false
+
+            // データ更新
             for idx in indicesToDelete.sorted(by: >) {
                 flatData.remove(at: idx)
             }
-            expandedState[folder.objectID] = false
 
-            // 3) tableView で削除アニメーション
+            // アニメーション
             tableView.beginUpdates()
             tableView.deleteRows(at: indexPaths, with: .fade)
             tableView.endUpdates()
