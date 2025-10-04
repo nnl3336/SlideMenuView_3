@@ -257,31 +257,27 @@ class FolderTableViewController: UITableViewController, NSFetchedResultsControll
 
     // MARK: - Toggle Folder
 
-    private func toggleFolder(for folder: Folder) {
+    @objc func toggleFolder(for folder: Folder) {
         let isExpanded = expandedState[folder.objectID] ?? false
         expandedState[folder.objectID] = !isExpanded
 
-        guard let row = flatData.firstIndex(of: folder) else { return }
-
-        let children = (folder.children as? Set<Folder>)?.sorted(by: { $0.sortIndex < $1.sortIndex }) ?? []
-
-        tableView.beginUpdates()
-        if !isExpanded {
-            flatData.insert(contentsOf: children, at: row + 1)
-            let indexPaths = children.indices.map { IndexPath(row: row + 1 + $0, section: 0) }
-            tableView.insertRows(at: indexPaths, with: .fade)
-        } else {
-            flatData.removeSubrange(row + 1 ..< row + 1 + children.count)
-            let indexPaths = children.indices.map { IndexPath(row: row + 1 + $0, section: 0) }
-            tableView.deleteRows(at: indexPaths, with: .fade)
+        // 閉じる場合は配下すべての子孫を閉じる
+        if isExpanded {
+            collapseAllDescendants(of: folder)
         }
-        tableView.endUpdates()
 
-        // 矢印アニメーション
-        if let cell = tableView.cellForRow(at: IndexPath(row: row, section: 0)) as? CustomCell {
-            UIView.animate(withDuration: 0.25) {
-                cell.arrowImageView.transform = !isExpanded ? CGAffineTransform(rotationAngle: .pi/2) : .identity
-            }
+        // flatDataを再構築
+        if let objects = frc.fetchedObjects {
+            flatData = flatten(folders: objects.filter { $0.parent == nil })
+        }
+
+        tableView.reloadData()
+    }
+    private func collapseAllDescendants(of folder: Folder) {
+        guard let children = folder.children as? Set<Folder> else { return }
+        for child in children {
+            expandedState[child.objectID] = false
+            collapseAllDescendants(of: child) // 再帰で孫・ひ孫も閉じる
         }
     }
 
