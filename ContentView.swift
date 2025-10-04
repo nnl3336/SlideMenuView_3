@@ -252,27 +252,137 @@ class FolderTableViewController: UITableViewController, NSFetchedResultsControll
         return cell
     }
 
+    // MARK: - Helpers
+
+    /// 展開時に挿入すべき「表示される子孫」を返す
+    private func visibleChildrenForExpand(of folder: Folder) -> [Folder] {
+        let children = (folder.children?.allObjects as? [Folder])?
+            .sorted(by: { $0.sortIndex < $1.sortIndex }) ?? []
+        var result: [Folder] = []
+        for child in children {
+            result.append(child)
+            // もし子が既に expandedState == true なら、その子の子も表示対象に含める
+            if expandedState[child.objectID] == true {
+                result.append(contentsOf: visibleChildrenForExpand(of: child))
+            }
+        }
+        return result
+    }
+
+    /// flatData 内で、`folder` の直後に続く「表示中の descendant」のインデックスリストを返す
+    private func indicesOfDescendantsInFlatData(startingAt folderIndex: Int, parentLevel: Int) -> [Int] {
+        var indices: [Int] = []
+        var i = folderIndex + 1
+        while i < flatData.count {
+            let level = getLevel(of: flatData[i])
+            if level > parentLevel {
+                indices.append(i)
+                i += 1
+            } else {
+                break
+            }
+        }
+        return indices
+    }
+
+    /// 再帰で配下の expandedState を false にする
+    private func collapseAllDescendantsState(of folder: Folder) {
+        guard let children = folder.children as? Set<Folder> else { return }
+        for child in children {
+            expandedState[child.objectID] = false
+            collapseAllDescendantsState(of: child)
+        }
+    }
+
+    // MARK: - Toggle (animated)
+
+    @objc func toggleFolder(for folder: Folder) {
+        // まず folder の現在の行を探す
+        guard let row = flatData.firstIndex(of: folder) else { return }
+        let isExpanded = expandedState[folder.objectID] ?? false
+        let parentLevel = getLevel(of: folder)
+
+        if !isExpanded {
+            // ----- 展開 -----
+            // 表示すべき子（および、すでに expanded な子の孫まで）を列挙
+            let itemsToInsert = visibleChildrenForExpand(of: folder)
+            guard !itemsToInsert.isEmpty else {
+                // 子がいなければ単に state を true にして矢印更新だけ
+                expandedState[folder.objectID] = true
+                if let cell = tableView.cellForRow(at: IndexPath(row: row, section: 0)) as? CustomCell {
+                    cell.arrowImageView.image = UIImage(systemName: "chevron.down")
+                    UIView.animate(withDuration: 0.25) {
+                        cell.arrowImageView.transform = CGAffineTransform(rotationAngle: .pi/2)
+                    }
+                }
+                return
+            }
+
+            let startIndex = row + 1
+            let indexPaths = itemsToInsert.enumerated().map { IndexPath(row: startIndex + $0.offset, section: 0) }
+
+            // 1) dataSource を先に更新
+            flatData.insert(contentsOf: itemsToInsert, at: startIndex)
+            expandedState[folder.objectID] = true
+
+            // 2) tableView にアニメーションで反映
+            tableView.beginUpdates()
+            tableView.insertRows(at: indexPaths, with: .fade)
+            tableView.endUpdates()
+
+        } else {
+            // ----- 折りたたみ -----
+            // 削除すべき行のインデックスを取得（現在表示されている descendant 全部）
+            let indicesToDelete = indicesOfDescendantsInFlatData(startingAt: row, parentLevel: parentLevel)
+            guard !indicesToDelete.isEmpty else {
+                expandedState[folder.objectID] = false
+                if let cell = tableView.cellForRow(at: IndexPath(row: row, section: 0)) as? CustomCell {
+                    cell.arrowImageView.image = UIImage(systemName: "chevron.right")
+                    UIView.animate(withDuration: 0.25) {
+                        cell.arrowImageView.transform = .identity
+                    }
+                }
+                return
+            }
+
+            // indexPaths を作る（基は old indices）
+            let indexPaths = indicesToDelete.map { IndexPath(row: $0, section: 0) }
+
+            // 1) 削除する descendant の expandedState を false にしておく
+            //    （再帰的に内部状態をクリア）
+            if let objects = indicesToDelete.map({ flatData[$0] }) as? [Folder] {
+                for f in objects { expandedState[f.objectID] = false }
+            }
+            // さらに subtree の expandedState も完全に消す（安全措置）
+            collapseAllDescendantsState(of: folder)
+
+            // 2) dataSource を先に更新（後ろから削る）
+            for idx in indicesToDelete.sorted(by: >) {
+                flatData.remove(at: idx)
+            }
+            expandedState[folder.objectID] = false
+
+            // 3) tableView で削除アニメーション
+            tableView.beginUpdates()
+            tableView.deleteRows(at: indexPaths, with: .fade)
+            tableView.endUpdates()
+        }
+
+        // 親セルの矢印回転更新
+        if let parentCell = tableView.cellForRow(at: IndexPath(row: row, section: 0)) as? CustomCell {
+            let nowExpanded = expandedState[folder.objectID] ?? false
+            let imageName = nowExpanded ? "chevron.down" : "chevron.right"
+            parentCell.arrowImageView.image = UIImage(systemName: imageName)
+            UIView.animate(withDuration: 0.25) {
+                parentCell.arrowImageView.transform = nowExpanded ? CGAffineTransform(rotationAngle: .pi/2) : .identity
+            }
+        }
+    }
 
 
 
     // MARK: - Toggle Folder
 
-    @objc func toggleFolder(for folder: Folder) {
-        let isExpanded = expandedState[folder.objectID] ?? false
-        expandedState[folder.objectID] = !isExpanded
-
-        // 閉じる場合は配下すべての子孫を閉じる
-        if isExpanded {
-            collapseAllDescendants(of: folder)
-        }
-
-        // flatDataを再構築
-        if let objects = frc.fetchedObjects {
-            flatData = flatten(folders: objects.filter { $0.parent == nil })
-        }
-
-        tableView.reloadData()
-    }
     private func collapseAllDescendants(of folder: Folder) {
         guard let children = folder.children as? Set<Folder> else { return }
         for child in children {
