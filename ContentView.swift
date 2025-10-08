@@ -9,72 +9,108 @@ import SwiftUI
 import CoreData
 import UIKit
 
-class FolderTableViewController: UITableViewController, NSFetchedResultsControllerDelegate, UISearchBarDelegate {
-
-    var context: NSManagedObjectContext!
-
-    var frc: NSFetchedResultsController<Folder>!
-    var flatData: [Folder] = []
-    var expandedState: [NSManagedObjectID: Bool] = [:]
-    
-    private(set) var rootFolders: [Folder] = []
+class FolderViewController: UIViewController, UITableViewDataSource, UITableViewDelegate, NSFetchedResultsControllerDelegate, UISearchBarDelegate {
 
     //***
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        tableView.register(CustomCell.self, forCellReuseIdentifier: "cell")
+        view.backgroundColor = .systemBackground
         
-        setupSearchBar()//SearchBar
-        setupTableView()//ツールバー
-        setupNavigationMenu()//ナビゲーションバー
-
+        setupTableView()
+        
+        setupSearchAndSortHeader()
+        setupToolbar()
+        
         setupFRC()
         
-        setupToolbar()
-        updateToolbar()
-
-        // fetchedObjects から rootFolders を取り出して flatData を作成
-        if let objects = frc?.fetchedObjects {
+        /*navigationItem.rightBarButtonItem = UIBarButtonItem(
+            barButtonSystemItem: .add, target: self, action: #selector(addFolder)
+        )*/
+        
+        if let objects = fetchedResultsController.fetchedObjects {
             flatData = flatten(folders: objects.filter { $0.parent == nil })
         }
+        
+        tableView.translatesAutoresizingMaskIntoConstraints = false
+        bottomToolbar.translatesAutoresizingMaskIntoConstraints = false
 
-        // 追加ボタン
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            barButtonSystemItem: .add,
-            target: self,
-            action: #selector(addFolder)
-        )
+        NSLayoutConstraint.activate([
+            tableView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            tableView.bottomAnchor.constraint(equalTo: bottomToolbar.topAnchor),
+
+            bottomToolbar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bottomToolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            bottomToolbar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+        ])
     }
     
     //***
     
-    // MARK: - UIMenu
-    
-    // 並び順管理
-    enum SortType { case order, title, createdAt, currentDate }
-    private var currentSort: SortType = .title
-    private var ascending: Bool = true
-    
-    private func setupNavigationMenu() {
-        let sortButton = UIBarButtonItem(title: "並び替え", menu: makeSortMenu())
-        navigationItem.rightBarButtonItem = sortButton
+    // MARK: - Add Folder　フォルダ追加
+    @objc private func addFolder() {
+        let alert = UIAlertController(title: "新しいフォルダ", message: "名前を入力してください", preferredStyle: .alert)
+        alert.addTextField { $0.placeholder = "フォルダ名" }
+
+        alert.addAction(UIAlertAction(title: "キャンセル", style: .cancel))
+        alert.addAction(UIAlertAction(title: "追加", style: .default, handler: { [weak self] _ in
+            guard let self = self else { return }
+            let name = alert.textFields?.first?.text ?? "無題"
+
+            // 新しいフォルダを作成
+            let newFolder = Folder(context: self.context)
+            newFolder.folderName = name
+            newFolder.sortIndex = (self.flatData.last?.sortIndex ?? -1) + 1
+
+            do { try self.context.save() } catch { print(error) }
+
+            // FRC から再取得
+            if let objects = self.fetchedResultsController.fetchedObjects {
+                self.flatData = self.flatten(folders: objects.filter { $0.parent == nil })
+                self.tableView.reloadData()
+            }
+        }))
+
+        present(alert, animated: true)
     }
-    
-    private var sortButton: UIButton!
-    
-    private var searchText: String = ""
 
-    private var fetchedResultsController: NSFetchedResultsController<Folder>!
-    
-    private var headerStackView: UIStackView!
-    
-    private let searchBar = UISearchBar()
+    // MARK: - Setup TableView
+    private func setupTableView() {
+        tableView.translatesAutoresizingMaskIntoConstraints = false
+        tableView.register(CustomCell.self, forCellReuseIdentifier: CustomCell.reuseID)
+        tableView.delegate = self
+        tableView.dataSource = self
+        tableView.tableFooterView = UIView()
+        view.addSubview(tableView)
+    }
 
+    // MARK: - Header (Search + Sort)
+    private func setupSearchAndSortHeader() {
+        sortButton = UIButton(type: .system)
+        sortButton.setTitle("並び替え", for: .normal)
+        sortButton.setImage(UIImage(systemName: "arrow.up.arrow.down"), for: .normal)
+        sortButton.tintColor = .systemBlue
+        sortButton.showsMenuAsPrimaryAction = true
+        sortButton.contentHorizontalAlignment = .center
+        sortButton.menu = makeSortMenu()
+        
+        searchBar = UISearchBar()
+        searchBar.delegate = self
+        searchBar.placeholder = "フォルダ名を検索"
+        
+        // StackViewでまとめる
+        headerStackView = UIStackView(arrangedSubviews: [sortButton, searchBar])
+        headerStackView.axis = .vertical
+        headerStackView.spacing = 8
+        headerStackView.alignment = .fill
+        
+        // レイアウトを確定させるためframe指定
+        headerStackView.frame = CGRect(x: 0, y: 0, width: view.frame.width, height: 100)
+        tableView.tableHeaderView = headerStackView
+    }
 
-    
-    //***
-    
     // MARK: - 並べ替えメニュー生成
     func makeSortMenu() -> UIMenu {
         return UIMenu(title: "並び替え", children: [
@@ -124,139 +160,10 @@ class FolderTableViewController: UITableViewController, NSFetchedResultsControll
                      }
         ])
     }
-
-    // MARK: - FRC設定
-    func setupFRC() {
-        let request: NSFetchRequest<Folder> = Folder.fetchRequest()
-
-        switch currentSort {
-        case .order:
-            request.sortDescriptors = [NSSortDescriptor(key: "sortIndex", ascending: ascending)]
-        case .title:
-            request.sortDescriptors = [NSSortDescriptor(key: "folderName", ascending: ascending)]
-        case .createdAt:
-            request.sortDescriptors = [NSSortDescriptor(key: "folderMadeTime", ascending: ascending)]
-        case .currentDate:
-            request.sortDescriptors = [NSSortDescriptor(key: "currentDate", ascending: ascending)]
-        }
-
-        // ルートフォルダのみ
-        var predicates: [NSPredicate] = [NSPredicate(format: "parent == nil")]
-        if !searchText.isEmpty {
-            predicates.append(NSPredicate(format: "folderName CONTAINS[cd] %@", searchText))
-        }
-        request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
-
-        fetchedResultsController = NSFetchedResultsController(
-            fetchRequest: request,
-            managedObjectContext: context,
-            sectionNameKeyPath: nil,
-            cacheName: nil
-        )
-        fetchedResultsController.delegate = self
-
-        do {
-            try fetchedResultsController.performFetch()
-            tableView.reloadData()
-        } catch {
-            print("❌ Fetch error: \(error)")
-        }
-    }
     
-    private func setupTableView() {
-        tableView.translatesAutoresizingMaskIntoConstraints = false
-        tableView.register(CustomCell.self, forCellReuseIdentifier: CustomCell.reuseID)
-        tableView.tableFooterView = UIView()
-        tableView.dataSource = self
-        tableView.delegate = self
-        //view.addSubview(tableView)
-    }
-    
-    private func setupSearchBar() {
-        // 並び替えボタン
-
-        // setupSearchBar() 内
-        sortButton = UIButton(type: .system)
-        sortButton.setTitle("並び替え", for: .normal)
-        sortButton.setImage(UIImage(systemName: "arrow.up.arrow.down"), for: .normal)
-        sortButton.tintColor = .systemBlue
-        sortButton.showsMenuAsPrimaryAction = true
-        sortButton.contentHorizontalAlignment = .center
-
-        // 最初のメニューセット
-        sortButton.menu = makeSortMenu()
-
-
-        // StackView でボタン＋SearchBarを縦並び
-        headerStackView = UIStackView(arrangedSubviews: [sortButton, searchBar])
-        headerStackView.axis = .vertical
-        headerStackView.spacing = 8
-        headerStackView.alignment = .center  // ← 中央寄せ
-        headerStackView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(headerStackView)
-
-        searchBar.delegate = self
-        searchBar.placeholder = "フォルダ名を検索"
-        searchBar.translatesAutoresizingMaskIntoConstraints = false
-        searchBar.widthAnchor.constraint(equalTo: headerStackView.widthAnchor).isActive = true
-    }
-
-    
-    private var bottomToolbar: UIToolbar = UIToolbar()
-    
-    enum BottomToolbarState {
-        case normal
-        case selecting
-        case editing   // 将来的に編集モードなど追加したい場合に便利
-    }
-
-    var selectedFolders: Set<Folder> = []
     var isHideMode = false // ← トグルで切り替え
 
-
-    
-    @objc private func transferItems() {
-        // 選択アイテムの転送処理
-        //delegate?.didToggleBool_TransferModal(true)
-        
-        // 選択をクリア
-        selectedFolders.removeAll()
-        
-        // テーブルの選択状態もリセット
-        tableView.reloadData()
-        
-        // ツールバーを通常に戻す
-        bottomToolbarState = .normal
-        updateToolbar()
-    }
-    
-    private func updateToolbar() {
-            switch bottomToolbarState {
-            case .normal:
-                bottomToolbar.isHidden = false
-                let edit = UIBarButtonItem(barButtonSystemItem: .edit, target: self, action: #selector(startEditing))
-                bottomToolbar.setItems([edit], animated: false)
-
-            case .selecting:
-                bottomToolbar.isHidden = false
-                let edit = UIBarButtonItem(barButtonSystemItem: .cancel, target: self, action: #selector(editCancelEdit))
-                bottomToolbar.setItems([edit], animated: false)
-
-            case .editing:
-                bottomToolbar.isHidden = false
-                let cancel = UIBarButtonItem(barButtonSystemItem: .cancel, target: self, action: #selector(selectCancelEdit))
-
-                if selectedFolders.isEmpty {
-                    // 選択なし → Cancel だけ
-                    bottomToolbar.setItems([cancel], animated: false)
-                } else {
-                    // 選択あり → Cancel + Transfer
-                    let transfer = UIBarButtonItem(title: "Transfer", style: .plain, target: self, action: #selector(transferItems))
-                    bottomToolbar.setItems([cancel, UIBarButtonItem.flexibleSpace(), transfer], animated: false)
-                }
-            }
-        }
-    
+    // MARK: - Bottom Toolbar
     private func setupToolbar() {
         bottomToolbar.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(bottomToolbar)
@@ -267,10 +174,38 @@ class FolderTableViewController: UITableViewController, NSFetchedResultsControll
             bottomToolbar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
             bottomToolbar.heightAnchor.constraint(equalToConstant: 44)
         ])
+        updateToolbar()
     }
-    
-    //var isEditingMode: Bool = false
-    
+
+    private func updateToolbar() {
+        switch bottomToolbarState {
+        case .normal:
+            bottomToolbar.isHidden = false
+            let edit = UIBarButtonItem(barButtonSystemItem: .edit, target: self, action: #selector(startEditing))
+            bottomToolbar.setItems([edit], animated: false)
+
+        case .selecting:
+            bottomToolbar.isHidden = false
+            let cancel = UIBarButtonItem(barButtonSystemItem: .cancel, target: self, action: #selector(editCancelEdit))
+            bottomToolbar.setItems([cancel], animated: false)
+
+        case .editing:
+            bottomToolbar.isHidden = false
+            let cancel = UIBarButtonItem(barButtonSystemItem: .cancel, target: self, action: #selector(selectCancelEdit))
+            if selectedFolders.isEmpty {
+                bottomToolbar.setItems([cancel], animated: false)
+            } else {
+                let transfer = UIBarButtonItem(title: "Transfer", style: .plain, target: self, action: #selector(transferItems))
+                bottomToolbar.setItems([cancel, UIBarButtonItem.flexibleSpace(), transfer], animated: false)
+            }
+        }
+    }
+    // MARK: - Actions
+    @objc private func startEditing() {
+        bottomToolbarState = .selecting
+        isHideMode = true
+        tableView.reloadData() // ←ここが重要
+    }
     @objc private func editCancelEdit() {
         isHideMode = false
         // 選択アイテムをクリア
@@ -285,22 +220,6 @@ class FolderTableViewController: UITableViewController, NSFetchedResultsControll
         // ツールバーを更新
         updateToolbar()
     }
-
-    private var bottomToolbarState: BottomToolbarState = .normal {
-        didSet {
-            updateToolbar()
-        }
-    }
-    
-
-    // MARK: - Actions
-    @objc private func startEditing() {
-        bottomToolbarState = .selecting
-        isHideMode = true
-        tableView.reloadData() // ←ここが重要
-    }
-
-
     @objc private func selectCancelEdit() {
         // 選択アイテムをクリア
         selectedFolders.removeAll()
@@ -314,151 +233,69 @@ class FolderTableViewController: UITableViewController, NSFetchedResultsControll
         // ツールバーを更新
         updateToolbar()
     }
-    
-    
-    
-    // クラス内プロパティ（既存の var 宣言のそばに追加）
-    var suppressFRCUpdates = false
+    @objc private func transferItems() {
+        // 選択アイテムの転送処理
+        //delegate?.didToggleBool_TransferModal(true)
+        
+        // 選択をクリア
+        selectedFolders.removeAll()
+        
+        // テーブルの選択状態もリセット
+        tableView.reloadData()
+        
+        // ツールバーを通常に戻す
+        bottomToolbarState = .normal
+        updateToolbar()
+    }
 
-    // 既存の controllerDidChangeContent を次のように置き換えてください
-    func controllerDidChangeContent(_ controller: NSFetchedResultsController<NSFetchRequestResult>) {
-        // 自分で手動更新中は FRC の自動反映を無視
-        if suppressFRCUpdates { return }
-
-        if let objects = frc.fetchedObjects {
-            flatData = flatten(folders: objects.filter { $0.parent == nil })
+    // MARK: - FRC
+    private func setupFRC() {
+        let request: NSFetchRequest<Folder> = Folder.fetchRequest()
+        switch currentSort {
+        case .order: request.sortDescriptors = [NSSortDescriptor(key: "sortIndex", ascending: ascending)]
+        case .title: request.sortDescriptors = [NSSortDescriptor(key: "folderName", ascending: ascending)]
+        case .createdAt: request.sortDescriptors = [NSSortDescriptor(key: "folderMadeTime", ascending: ascending)]
+        case .currentDate: request.sortDescriptors = [NSSortDescriptor(key: "currentDate", ascending: ascending)]
+        }
+        request.predicate = NSPredicate(format: "parent == nil")
+        
+        fetchedResultsController = NSFetchedResultsController(
+            fetchRequest: request,
+            managedObjectContext: context,
+            sectionNameKeyPath: nil,
+            cacheName: nil
+        )
+        fetchedResultsController.delegate = self
+        
+        do {
+            try fetchedResultsController.performFetch()
             tableView.reloadData()
+        } catch {
+            print("❌ Fetch error: \(error)")
         }
     }
 
-    // FolderTableViewController に以下のメソッドを追加してください
-    func addChildFolder(to parent: Folder) {
-        let alert = UIAlertController(title: "子フォルダ名を入力", message: nil, preferredStyle: .alert)
-        alert.addTextField { $0.placeholder = "新しい子フォルダ名" }
-        alert.addAction(UIAlertAction(title: "キャンセル", style: .cancel))
-        alert.addAction(UIAlertAction(title: "追加", style: .default, handler: { [weak self] _ in
-            guard let self = self else { return }
-            guard let text = alert.textFields?.first?.text, !text.isEmpty else { return }
-
-            // 保存中に FRC の自動反映を抑制
-            self.suppressFRCUpdates = true
-
-            // 新しいフォルダを作る
-            let newFolder = Folder(context: self.context)
-            newFolder.folderName = text
-            newFolder.parent = parent
-            parent.addToChildren(newFolder)   // ← これを追加
-
-            // 親の既存 children 数を元に sortIndex を設定（末尾に追加）
-            let currentChildCount = (parent.children as? Set<Folder>)?.count ?? 0
-            newFolder.sortIndex = Int64(currentChildCount)
-
-            do {
-                try self.context.save()
-            } catch {
-                print("子フォルダ保存失敗: \(error)")
-                self.suppressFRCUpdates = false
-                return
-            }
-
-            DispatchQueue.main.async {
-                // 古い表示配列を保持
-                let oldFlat = self.flatData
-
-                // 自動で親を展開する（不要ならこの行を外す）
-                self.expandedState[parent.objectID] = true
-
-                // 新しい fetchedObjects から新しい flatData を作る
-                guard let objects = self.frc.fetchedObjects else {
-                    self.suppressFRCUpdates = false
-                    return
-                }
-                let newFlat = self.flatten(folders: objects.filter { $0.parent == nil })
-
-                // 差分（新しく追加された objectID）を見つける
-                let oldIDs = Set(oldFlat.map { $0.objectID })
-                var insertIndexPaths: [IndexPath] = []
-                for (i, f) in newFlat.enumerated() {
-                    if !oldIDs.contains(f.objectID) {
-                        insertIndexPaths.append(IndexPath(row: i, section: 0))
-                    }
-                }
-
-                // data source を先に更新してから table に反映（重要）
-                self.flatData = newFlat
-
-                if !insertIndexPaths.isEmpty {
-                    self.tableView.beginUpdates()
-                    self.tableView.insertRows(at: insertIndexPaths, with: .automatic)
-                    self.tableView.endUpdates()
-
-                    // optional: 新しく追加された行までスクロール
-                    if let last = insertIndexPaths.last {
-                        self.tableView.scrollToRow(at: last, at: .middle, animated: true)
-                    }
-                } else {
-                    // 差分が見つからなければ安全にリロード
-                    self.tableView.reloadData()
-                }
-
-                // 抑制フラグを戻す
-                self.suppressFRCUpdates = false
-            }
-        }))
-
-        present(alert, animated: true)
+    // MARK: - UITableView DataSource
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        flatData.count
     }
 
-    
-    // MARK: - Context Menu　コンテキストメニュー
-    override func tableView(_ tableView: UITableView,
-                            contextMenuConfigurationForRowAt indexPath: IndexPath,
-                            point: CGPoint) -> UIContextMenuConfiguration? {
-        guard indexPath.row < flatData.count else { return nil }
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let folder = flatData[indexPath.row]
-
-        return UIContextMenuConfiguration(identifier: nil,
-                                          previewProvider: nil) { _ in
-            let addChild = UIAction(title: "子フォルダを追加",
-                                    image: UIImage(systemName: "folder.badge.plus")) { [weak self] _ in
-                self?.addChildFolder(to: folder)
-            }
-
-            return UIMenu(title: "", children: [addChild])
-        }
+        let cell = tableView.dequeueReusableCell(withIdentifier: CustomCell.reuseID, for: indexPath) as! CustomCell
+        let level = getLevel(of: folder)
+        let isExpanded = expandedState[folder.objectID] ?? false
+        cell.configure(with: folder, level: level, isExpanded: isExpanded)
+        return cell
     }
 
-
-    
-    // MARK: - Add Folder　フォルダ追加
-    @objc private func addFolder() {
-        let alert = UIAlertController(title: "新しいフォルダ", message: "名前を入力してください", preferredStyle: .alert)
-        alert.addTextField { $0.placeholder = "フォルダ名" }
-
-        alert.addAction(UIAlertAction(title: "キャンセル", style: .cancel))
-        alert.addAction(UIAlertAction(title: "追加", style: .default, handler: { [weak self] _ in
-            guard let self = self else { return }
-            let name = alert.textFields?.first?.text ?? "無題"
-
-            // 新しいフォルダを作成
-            let newFolder = Folder(context: self.context)
-            newFolder.folderName = name
-            newFolder.sortIndex = (self.flatData.last?.sortIndex ?? -1) + 1
-
-            do { try self.context.save() } catch { print(error) }
-
-            // FRC から再取得
-            if let objects = self.frc.fetchedObjects {
-                self.flatData = self.flatten(folders: objects.filter { $0.parent == nil })
-                self.tableView.reloadData()
-            }
-        }))
-
-        present(alert, animated: true)
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        let folder = flatData[indexPath.row]
+        toggleFolder(for: folder)
+        tableView.deselectRow(at: indexPath, animated: true)
     }
 
-    
-    // MARK: - Flatten
+    // MARK: - Helpers
     private func flatten(folders: [Folder]) -> [Folder] {
         var result: [Folder] = []
         for folder in folders {
@@ -471,7 +308,6 @@ class FolderTableViewController: UITableViewController, NSFetchedResultsControll
         return result
     }
 
-
     private func getLevel(of folder: Folder) -> Int {
         var level = 0
         var current = folder.parent
@@ -482,38 +318,45 @@ class FolderTableViewController: UITableViewController, NSFetchedResultsControll
         return level
     }
 
-    // MARK: - UITableViewDataSource
-
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        flatData.count
-    }
-// MARK: - セル表示
-    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let folder = flatData[indexPath.row]
-        let cell = tableView.dequeueReusableCell(withIdentifier: "cell", for: indexPath) as! CustomCell
-
-        let level = getLevel(of: folder)
+    // MARK: - Toggle Folder
+    func toggleFolder(for folder: Folder) {
+        guard let row = flatData.firstIndex(of: folder) else { return }
         let isExpanded = expandedState[folder.objectID] ?? false
-        cell.configure(with: folder, level: level, isExpanded: isExpanded)
+        let parentLevel = getLevel(of: folder)
 
-        // 矢印タップで開閉
-        /*cell.arrowTapAction = { [weak self] in
-            self?.toggleFolder(for: folder)
-        }*/
-
-        return cell
+        if !isExpanded {
+            let itemsToInsert = visibleChildrenForExpand(of: folder)
+            guard !itemsToInsert.isEmpty else {
+                expandedState[folder.objectID] = true
+                return
+            }
+            let startIndex = row + 1
+            let indexPaths = itemsToInsert.enumerated().map { IndexPath(row: startIndex + $0.offset, section: 0) }
+            flatData.insert(contentsOf: itemsToInsert, at: startIndex)
+            expandedState[folder.objectID] = true
+            tableView.beginUpdates()
+            tableView.insertRows(at: indexPaths, with: .fade)
+            tableView.endUpdates()
+        } else {
+            let indicesToDelete = indicesOfDescendantsInFlatData(startingAt: row, parentLevel: parentLevel)
+            guard !indicesToDelete.isEmpty else {
+                expandedState[folder.objectID] = false
+                return
+            }
+            let indexPaths = indicesToDelete.map { IndexPath(row: $0, section: 0) }
+            expandedState[folder.objectID] = false
+            for idx in indicesToDelete.sorted(by: >) { flatData.remove(at: idx) }
+            tableView.beginUpdates()
+            tableView.deleteRows(at: indexPaths, with: .fade)
+            tableView.endUpdates()
+        }
     }
 
-    // MARK: - Helpers
-
-    /// 展開時に挿入すべき「表示される子孫」を返す
     private func visibleChildrenForExpand(of folder: Folder) -> [Folder] {
-        let children = (folder.children?.allObjects as? [Folder])?
-            .sorted(by: { $0.sortIndex < $1.sortIndex }) ?? []
+        let children = (folder.children?.allObjects as? [Folder])?.sorted { $0.sortIndex < $1.sortIndex } ?? []
         var result: [Folder] = []
         for child in children {
             result.append(child)
-            // もし子が既に expandedState == true なら、その子の子も表示対象に含める
             if expandedState[child.objectID] == true {
                 result.append(contentsOf: visibleChildrenForExpand(of: child))
             }
@@ -521,141 +364,53 @@ class FolderTableViewController: UITableViewController, NSFetchedResultsControll
         return result
     }
 
-    /// flatData 内で、`folder` の直後に続く「表示中の descendant」のインデックスリストを返す
     private func indicesOfDescendantsInFlatData(startingAt folderIndex: Int, parentLevel: Int) -> [Int] {
         var indices: [Int] = []
         var i = folderIndex + 1
         while i < flatData.count {
             let level = getLevel(of: flatData[i])
-            if level > parentLevel {
-                indices.append(i)
-                i += 1
-            } else {
-                break
-            }
+            if level > parentLevel { indices.append(i); i += 1 } else { break }
         }
         return indices
     }
+    
+    //***//基本プロパティ
+    
+    var context: NSManagedObjectContext!
+    private var fetchedResultsController: NSFetchedResultsController<Folder>!
+    private var flatData: [Folder] = []
+    private var expandedState: [NSManagedObjectID: Bool] = [:]
 
-    /// 再帰で配下の expandedState を false にする
-    private func collapseAllDescendantsState(of folder: Folder) {
-        guard let children = folder.children as? Set<Folder> else { return }
-        for child in children {
-            expandedState[child.objectID] = false
-            collapseAllDescendantsState(of: child)
-        }
+    private let tableView = UITableView()
+    private var searchBar = UISearchBar()
+    private var sortButton: UIButton!
+    private var headerStackView: UIStackView!
+    private let bottomToolbar = UIToolbar()
+
+    enum SortType { case order, title, createdAt, currentDate }
+    private var currentSort: SortType = .title
+    private var ascending: Bool = true
+
+    var selectedFolders: Set<Folder> = []
+    var bottomToolbarState: BottomToolbarState = .normal {
+        didSet { updateToolbar() }
     }
+    
+    var suppressFRCUpdates = false
 
-    // MARK: - Toggle (animated)
-
-    @objc func toggleFolder(for folder: Folder) {
-        // まず folder の現在の行を探す
-        guard let row = flatData.firstIndex(of: folder) else { return }
-        let isExpanded = expandedState[folder.objectID] ?? false
-        let parentLevel = getLevel(of: folder)
-
-        if !isExpanded {
-            // ----- 展開 -----
-            // 表示すべき子（および、すでに expanded な子の孫まで）を列挙
-            let itemsToInsert = visibleChildrenForExpand(of: folder)
-            guard !itemsToInsert.isEmpty else {
-                // 子がいなければ単に state を true にして矢印更新だけ
-                expandedState[folder.objectID] = true
-                if let cell = tableView.cellForRow(at: IndexPath(row: row, section: 0)) as? CustomCell {
-                    //cell.arrowImageView.image = UIImage(systemName: "chevron.down")
-                    UIView.animate(withDuration: 0.25) {
-                        //cell.arrowImageView.transform = CGAffineTransform(rotationAngle: .pi/2)
-                    }
-                }
-                return
-            }
-
-            let startIndex = row + 1
-            let indexPaths = itemsToInsert.enumerated().map { IndexPath(row: startIndex + $0.offset, section: 0) }
-
-            // 1) dataSource を先に更新
-            flatData.insert(contentsOf: itemsToInsert, at: startIndex)
-            expandedState[folder.objectID] = true
-
-            // 2) tableView にアニメーションで反映
-            tableView.beginUpdates()
-            tableView.insertRows(at: indexPaths, with: .fade)
-            tableView.endUpdates()
-
-        } else {
-            // ----- 折りたたみ -----
-            let indicesToDelete = indicesOfDescendantsInFlatData(startingAt: row, parentLevel: parentLevel)
-            guard !indicesToDelete.isEmpty else {
-                expandedState[folder.objectID] = false
-                if let cell = tableView.cellForRow(at: IndexPath(row: row, section: 0)) as? CustomCell {
-                    //cell.arrowImageView.image = UIImage(systemName: "chevron.right")
-                    UIView.animate(withDuration: 0.25) {
-                        //cell.arrowImageView.transform = .identity
-                    }
-                }
-                return
-            }
-
-            let indexPaths = indicesToDelete.map { IndexPath(row: $0, section: 0) }
-
-            // ❌ 展開状態を全て false にする処理を削除！
-            // if let objects = indicesToDelete.map({ flatData[$0] }) as? [Folder] {
-            //     for f in objects { expandedState[f.objectID] = false }
-            // }
-            // collapseAllDescendantsState(of: folder)
-
-            // ✅ 自分（親フォルダ）だけ閉じる
-            expandedState[folder.objectID] = false
-
-            // データ更新
-            for idx in indicesToDelete.sorted(by: >) {
-                flatData.remove(at: idx)
-            }
-
-            // アニメーション
-            tableView.beginUpdates()
-            tableView.deleteRows(at: indexPaths, with: .fade)
-            tableView.endUpdates()
-        }
-
-        // 親セルの矢印回転更新
-        if let parentCell = tableView.cellForRow(at: IndexPath(row: row, section: 0)) as? CustomCell {
-            let nowExpanded = expandedState[folder.objectID] ?? false
-            let imageName = nowExpanded ? "chevron.down" : "chevron.right"
-            /*UIView.transition(with: parentCell.arrowImageView,
-                              duration: 0.22,
-                              options: .transitionCrossDissolve,
-                              animations: {
-                //parentCell.arrowImageView.image = UIImage(systemName: imageName)?.withRenderingMode(.alwaysTemplate)
-                //parentCell.arrowImageView.semanticContentAttribute = .forceLeftToRight
-            }, completion: nil)*/
-        }
-        
+    enum BottomToolbarState {
+        case normal, selecting, editing
     }
-
-
-
-    // MARK: - Toggle Folder
-
-    private func collapseAllDescendants(of folder: Folder) {
-        guard let children = folder.children as? Set<Folder> else { return }
-        for child in children {
-            expandedState[child.objectID] = false
-            collapseAllDescendants(of: child) // 再帰で孫・ひ孫も閉じる
-        }
-    }
-
-    // MARK: - NSFetchedResultsControllerDelegate
-
-    /*func controllerDidChangeContent(_ controller: NSFetchedResultsController<NSFetchRequestResult>) {
-        if let objects = frc.fetchedObjects {
-            flatData = flatten(folders: objects.filter { $0.parent == nil })
-            tableView.reloadData() // 差分更新に変えるとさらにアニメーション対応可能
-        }
-    }*/
+    
+    //***
 }
 
 
+
+///***
+///
+///
+///
 
 
 
@@ -676,7 +431,7 @@ struct ListVCWrapper: UIViewControllerRepresentable {
     @Environment(\.managedObjectContext) var context
 
     func makeUIViewController(context: Context) -> UINavigationController {
-        let folderVC = FolderTableViewController()
+        let folderVC = FolderViewController()
         folderVC.context = self.context
         let nav = UINavigationController(rootViewController: folderVC)
         return nav
