@@ -26,6 +26,9 @@ class FolderTableViewController: UITableViewController, NSFetchedResultsControll
         tableView.register(CustomCell.self, forCellReuseIdentifier: "cell")
 
         setupFRC()
+        
+        setupToolbar()
+        updateToolbar()
 
         // fetchedObjects から rootFolders を取り出して flatData を作成
         if let objects = frc?.fetchedObjects {
@@ -42,6 +45,123 @@ class FolderTableViewController: UITableViewController, NSFetchedResultsControll
 
     
     //***
+    
+    // MARK: - UIMenu
+    
+    private var bottomToolbar: UIToolbar = UIToolbar()
+    
+    enum BottomToolbarState {
+        case normal
+        case selecting
+        case editing   // 将来的に編集モードなど追加したい場合に便利
+    }
+
+    var selectedFolders: Set<Folder> = []
+    var isHideMode = false // ← トグルで切り替え
+
+
+    
+    @objc private func transferItems() {
+        // 選択アイテムの転送処理
+        //delegate?.didToggleBool_TransferModal(true)
+        
+        // 選択をクリア
+        selectedFolders.removeAll()
+        
+        // テーブルの選択状態もリセット
+        tableView.reloadData()
+        
+        // ツールバーを通常に戻す
+        bottomToolbarState = .normal
+        updateToolbar()
+    }
+    
+    private func updateToolbar() {
+            switch bottomToolbarState {
+            case .normal:
+                bottomToolbar.isHidden = false
+                let edit = UIBarButtonItem(barButtonSystemItem: .edit, target: self, action: #selector(startEditing))
+                bottomToolbar.setItems([edit], animated: false)
+
+            case .selecting:
+                bottomToolbar.isHidden = false
+                let edit = UIBarButtonItem(barButtonSystemItem: .cancel, target: self, action: #selector(editCancelEdit))
+                bottomToolbar.setItems([edit], animated: false)
+
+            case .editing:
+                bottomToolbar.isHidden = false
+                let cancel = UIBarButtonItem(barButtonSystemItem: .cancel, target: self, action: #selector(selectCancelEdit))
+
+                if selectedFolders.isEmpty {
+                    // 選択なし → Cancel だけ
+                    bottomToolbar.setItems([cancel], animated: false)
+                } else {
+                    // 選択あり → Cancel + Transfer
+                    let transfer = UIBarButtonItem(title: "Transfer", style: .plain, target: self, action: #selector(transferItems))
+                    bottomToolbar.setItems([cancel, UIBarButtonItem.flexibleSpace(), transfer], animated: false)
+                }
+            }
+        }
+    
+    private func setupToolbar() {
+        bottomToolbar.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(bottomToolbar)
+        
+        NSLayoutConstraint.activate([
+            bottomToolbar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bottomToolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            bottomToolbar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+            bottomToolbar.heightAnchor.constraint(equalToConstant: 44)
+        ])
+    }
+    
+    //var isEditingMode: Bool = false
+    
+    @objc private func editCancelEdit() {
+        isHideMode = false
+        // 選択アイテムをクリア
+        selectedFolders.removeAll()
+        
+        // bottomToolbarState を通常に戻す
+        bottomToolbarState = .normal
+        
+        // テーブルの選択状態もリセット
+        tableView.reloadData()
+        
+        // ツールバーを更新
+        updateToolbar()
+    }
+
+    private var bottomToolbarState: BottomToolbarState = .normal {
+        didSet {
+            updateToolbar()
+        }
+    }
+    
+
+    // MARK: - Actions
+    @objc private func startEditing() {
+        bottomToolbarState = .selecting
+        isHideMode = true
+        tableView.reloadData() // ←ここが重要
+    }
+
+
+    @objc private func selectCancelEdit() {
+        // 選択アイテムをクリア
+        selectedFolders.removeAll()
+        
+        // bottomToolbarState を通常に戻す
+        bottomToolbarState = .normal
+        
+        // テーブルの選択状態もリセット
+        tableView.reloadData()
+        
+        // ツールバーを更新
+        updateToolbar()
+    }
+    
+    
     
     // クラス内プロパティ（既存の var 宣言のそばに追加）
     var suppressFRCUpdates = false
@@ -370,11 +490,15 @@ class FolderTableViewController: UITableViewController, NSFetchedResultsControll
         if let parentCell = tableView.cellForRow(at: IndexPath(row: row, section: 0)) as? CustomCell {
             let nowExpanded = expandedState[folder.objectID] ?? false
             let imageName = nowExpanded ? "chevron.down" : "chevron.right"
-            parentCell.arrowImageView.image = UIImage(systemName: imageName)
-            UIView.animate(withDuration: 0.25) {
-                parentCell.arrowImageView.transform = nowExpanded ? CGAffineTransform(rotationAngle: .pi/2) : .identity
-            }
+            UIView.transition(with: parentCell.arrowImageView,
+                              duration: 0.22,
+                              options: .transitionCrossDissolve,
+                              animations: {
+                parentCell.arrowImageView.image = UIImage(systemName: imageName)?.withRenderingMode(.alwaysTemplate)
+                parentCell.arrowImageView.semanticContentAttribute = .forceLeftToRight
+            }, completion: nil)
         }
+        
     }
 
 
