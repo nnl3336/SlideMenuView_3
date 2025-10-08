@@ -9,7 +9,7 @@ import SwiftUI
 import CoreData
 import UIKit
 
-class FolderTableViewController: UITableViewController, NSFetchedResultsControllerDelegate {
+class FolderTableViewController: UITableViewController, NSFetchedResultsControllerDelegate, UISearchBarDelegate {
 
     var context: NSManagedObjectContext!
 
@@ -24,6 +24,10 @@ class FolderTableViewController: UITableViewController, NSFetchedResultsControll
     override func viewDidLoad() {
         super.viewDidLoad()
         tableView.register(CustomCell.self, forCellReuseIdentifier: "cell")
+        
+        setupSearchBar()//SearchBar
+        setupTableView()//ツールバー
+        setupNavigationMenu()//ナビゲーションバー
 
         setupFRC()
         
@@ -42,11 +46,161 @@ class FolderTableViewController: UITableViewController, NSFetchedResultsControll
             action: #selector(addFolder)
         )
     }
-
     
     //***
     
     // MARK: - UIMenu
+    
+    // 並び順管理
+    enum SortType { case order, title, createdAt, currentDate }
+    private var currentSort: SortType = .title
+    private var ascending: Bool = true
+    
+    private func setupNavigationMenu() {
+        let sortButton = UIBarButtonItem(title: "並び替え", menu: makeSortMenu())
+        navigationItem.rightBarButtonItem = sortButton
+    }
+    
+    private var sortButton: UIButton!
+    
+    private var searchText: String = ""
+
+    private var fetchedResultsController: NSFetchedResultsController<Folder>!
+    
+    private var headerStackView: UIStackView!
+    
+    private let searchBar = UISearchBar()
+
+
+    
+    //***
+    
+    // MARK: - 並べ替えメニュー生成
+    func makeSortMenu() -> UIMenu {
+        return UIMenu(title: "並び替え", children: [
+            UIAction(title: "作成日", image: UIImage(systemName: "calendar"),
+                     state: currentSort == .createdAt ? .on : .off) { [weak self] _ in
+                         guard let self = self else { return }
+                         self.currentSort = .createdAt
+                         self.setupFRC()
+                         if let button = self.sortButton { button.menu = self.makeSortMenu() }
+                     },
+            UIAction(title: "名前", image: UIImage(systemName: "textformat"),
+                     state: currentSort == .title ? .on : .off) { [weak self] _ in
+                         guard let self = self else { return }
+                         self.currentSort = .title
+                         self.setupFRC()
+                         if let button = self.sortButton { button.menu = self.makeSortMenu() }
+                     },
+            UIAction(title: "追加日", image: UIImage(systemName: "clock"),
+                     state: currentSort == .currentDate ? .on : .off) { [weak self] _ in
+                         guard let self = self else { return }
+                         self.currentSort = .currentDate
+                         self.setupFRC()
+                         if let button = self.sortButton { button.menu = self.makeSortMenu() }
+                     },
+            // 1. UIAction 内で編集モードに切り替え
+            UIAction(title: "順番", image: UIImage(systemName: "list.number"),
+                     state: currentSort == .order ? .on : .off) { [weak self] _ in
+                         guard let self = self else { return }
+                         self.currentSort = .order
+                         self.setupFRC()
+                         
+                         // 編集モードに切り替え（ハンドルが出る）
+                         // 編集モードにしても削除は不可、ハンドルのみ表示
+                         tableView.setEditing(currentSort == .order, animated: true)
+                         tableView.allowsSelectionDuringEditing = true // 選択も可能
+                         // メニュー更新
+                         if let button = self.sortButton { button.menu = self.makeSortMenu() }
+                     },
+            
+            
+            UIAction(title: ascending ? "昇順 (A→Z)" : "降順 (Z→A)",
+                     image: UIImage(systemName: "arrow.up.arrow.down")) { [weak self] _ in
+                         guard let self = self else { return }
+                         self.ascending.toggle()
+                         self.setupFRC()
+                         if let button = self.sortButton { button.menu = self.makeSortMenu() }
+                     }
+        ])
+    }
+
+    // MARK: - FRC設定
+    func setupFRC() {
+        let request: NSFetchRequest<Folder> = Folder.fetchRequest()
+
+        switch currentSort {
+        case .order:
+            request.sortDescriptors = [NSSortDescriptor(key: "sortIndex", ascending: ascending)]
+        case .title:
+            request.sortDescriptors = [NSSortDescriptor(key: "folderName", ascending: ascending)]
+        case .createdAt:
+            request.sortDescriptors = [NSSortDescriptor(key: "folderMadeTime", ascending: ascending)]
+        case .currentDate:
+            request.sortDescriptors = [NSSortDescriptor(key: "currentDate", ascending: ascending)]
+        }
+
+        // ルートフォルダのみ
+        var predicates: [NSPredicate] = [NSPredicate(format: "parent == nil")]
+        if !searchText.isEmpty {
+            predicates.append(NSPredicate(format: "folderName CONTAINS[cd] %@", searchText))
+        }
+        request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
+
+        fetchedResultsController = NSFetchedResultsController(
+            fetchRequest: request,
+            managedObjectContext: context,
+            sectionNameKeyPath: nil,
+            cacheName: nil
+        )
+        fetchedResultsController.delegate = self
+
+        do {
+            try fetchedResultsController.performFetch()
+            tableView.reloadData()
+        } catch {
+            print("❌ Fetch error: \(error)")
+        }
+    }
+    
+    private func setupTableView() {
+        tableView.translatesAutoresizingMaskIntoConstraints = false
+        tableView.register(CustomCell.self, forCellReuseIdentifier: CustomCell.reuseID)
+        tableView.tableFooterView = UIView()
+        tableView.dataSource = self
+        tableView.delegate = self
+        //view.addSubview(tableView)
+    }
+    
+    private func setupSearchBar() {
+        // 並び替えボタン
+
+        // setupSearchBar() 内
+        sortButton = UIButton(type: .system)
+        sortButton.setTitle("並び替え", for: .normal)
+        sortButton.setImage(UIImage(systemName: "arrow.up.arrow.down"), for: .normal)
+        sortButton.tintColor = .systemBlue
+        sortButton.showsMenuAsPrimaryAction = true
+        sortButton.contentHorizontalAlignment = .center
+
+        // 最初のメニューセット
+        sortButton.menu = makeSortMenu()
+
+
+        // StackView でボタン＋SearchBarを縦並び
+        headerStackView = UIStackView(arrangedSubviews: [sortButton, searchBar])
+        headerStackView.axis = .vertical
+        headerStackView.spacing = 8
+        headerStackView.alignment = .center  // ← 中央寄せ
+        headerStackView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(headerStackView)
+
+        searchBar.delegate = self
+        searchBar.placeholder = "フォルダ名を検索"
+        searchBar.translatesAutoresizingMaskIntoConstraints = false
+        searchBar.widthAnchor.constraint(equalTo: headerStackView.widthAnchor).isActive = true
+    }
+
     
     private var bottomToolbar: UIToolbar = UIToolbar()
     
@@ -275,28 +429,6 @@ class FolderTableViewController: UITableViewController, NSFetchedResultsControll
     }
 
 
-    private func setupFRC() {
-        let request: NSFetchRequest<Folder> = Folder.fetchRequest()
-        request.sortDescriptors = [
-            NSSortDescriptor(key: "sortIndex", ascending: true),
-            NSSortDescriptor(key: "folderName", ascending: true)
-        ]
-
-        frc = NSFetchedResultsController(fetchRequest: request,
-                                         managedObjectContext: context,
-                                         sectionNameKeyPath: nil,
-                                         cacheName: nil)
-        frc.delegate = self
-
-        do {
-            try frc.performFetch()
-            if let objects = frc.fetchedObjects {
-                flatData = flatten(folders: objects.filter { $0.parent == nil })
-            }
-        } catch {
-            print("FRC fetch error: \(error)")
-        }
-    }
     
     // MARK: - Add Folder　フォルダ追加
     @objc private func addFolder() {
@@ -365,9 +497,9 @@ class FolderTableViewController: UITableViewController, NSFetchedResultsControll
         cell.configure(with: folder, level: level, isExpanded: isExpanded)
 
         // 矢印タップで開閉
-        cell.arrowTapAction = { [weak self] in
+        /*cell.arrowTapAction = { [weak self] in
             self?.toggleFolder(for: folder)
-        }
+        }*/
 
         return cell
     }
@@ -430,9 +562,9 @@ class FolderTableViewController: UITableViewController, NSFetchedResultsControll
                 // 子がいなければ単に state を true にして矢印更新だけ
                 expandedState[folder.objectID] = true
                 if let cell = tableView.cellForRow(at: IndexPath(row: row, section: 0)) as? CustomCell {
-                    cell.arrowImageView.image = UIImage(systemName: "chevron.down")
+                    //cell.arrowImageView.image = UIImage(systemName: "chevron.down")
                     UIView.animate(withDuration: 0.25) {
-                        cell.arrowImageView.transform = CGAffineTransform(rotationAngle: .pi/2)
+                        //cell.arrowImageView.transform = CGAffineTransform(rotationAngle: .pi/2)
                     }
                 }
                 return
@@ -456,9 +588,9 @@ class FolderTableViewController: UITableViewController, NSFetchedResultsControll
             guard !indicesToDelete.isEmpty else {
                 expandedState[folder.objectID] = false
                 if let cell = tableView.cellForRow(at: IndexPath(row: row, section: 0)) as? CustomCell {
-                    cell.arrowImageView.image = UIImage(systemName: "chevron.right")
+                    //cell.arrowImageView.image = UIImage(systemName: "chevron.right")
                     UIView.animate(withDuration: 0.25) {
-                        cell.arrowImageView.transform = .identity
+                        //cell.arrowImageView.transform = .identity
                     }
                 }
                 return
@@ -490,13 +622,13 @@ class FolderTableViewController: UITableViewController, NSFetchedResultsControll
         if let parentCell = tableView.cellForRow(at: IndexPath(row: row, section: 0)) as? CustomCell {
             let nowExpanded = expandedState[folder.objectID] ?? false
             let imageName = nowExpanded ? "chevron.down" : "chevron.right"
-            UIView.transition(with: parentCell.arrowImageView,
+            /*UIView.transition(with: parentCell.arrowImageView,
                               duration: 0.22,
                               options: .transitionCrossDissolve,
                               animations: {
-                parentCell.arrowImageView.image = UIImage(systemName: imageName)?.withRenderingMode(.alwaysTemplate)
-                parentCell.arrowImageView.semanticContentAttribute = .forceLeftToRight
-            }, completion: nil)
+                //parentCell.arrowImageView.image = UIImage(systemName: imageName)?.withRenderingMode(.alwaysTemplate)
+                //parentCell.arrowImageView.semanticContentAttribute = .forceLeftToRight
+            }, completion: nil)*/
         }
         
     }
