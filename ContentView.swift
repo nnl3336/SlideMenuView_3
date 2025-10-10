@@ -24,9 +24,9 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         
         setupFRC()
         
-        /*navigationItem.rightBarButtonItem = UIBarButtonItem(
+        navigationItem.rightBarButtonItem = UIBarButtonItem(
          barButtonSystemItem: .add, target: self, action: #selector(addFolder)
-         )*/
+         )
         
         if let objects = fetchedResultsController.fetchedObjects {
             flatData = flatten(folders: objects.filter { $0.parent == nil })
@@ -180,29 +180,22 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     @objc private func addFolder() {
         let alert = UIAlertController(title: "新しいフォルダ", message: "名前を入力してください", preferredStyle: .alert)
         alert.addTextField { $0.placeholder = "フォルダ名" }
-        
+
         alert.addAction(UIAlertAction(title: "キャンセル", style: .cancel))
         alert.addAction(UIAlertAction(title: "追加", style: .default, handler: { [weak self] _ in
             guard let self = self else { return }
             let name = alert.textFields?.first?.text ?? "無題"
-            
-            // 新しいフォルダを作成
             let newFolder = Folder(context: self.context)
             newFolder.folderName = name
-            newFolder.sortIndex = ((self.flatData.last?.folder.sortIndex) ?? -1) + 1
+            newFolder.sortIndex = (self.flatData.last?.folder.sortIndex ?? -1) + 1
 
             do { try self.context.save() } catch { print(error) }
-            
-            // FRC から再取得
-            if let objects = self.fetchedResultsController.fetchedObjects {
-                self.flatData = self.flatten(folders: objects.filter { $0.parent == nil })
-                self.tableView.reloadData()
-            }
+            // FRC が自動で controllerDidChangeContent を呼ぶ
         }))
-        
+
         present(alert, animated: true)
     }
-    
+
     // MARK: - Setup TableView
     private func setupTableView() {
         tableView.translatesAutoresizingMaskIntoConstraints = false
@@ -583,7 +576,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     }
     
     //フラット化
-    func flattenFolders(_ folders: [Folder], level: Int = 0) -> [(folder: Folder, level: Int)] {
+    private func flattenFolders(_ folders: [Folder], level: Int = 0) -> [(folder: Folder, level: Int)] {
         var result: [(folder: Folder, level: Int)] = []
         for folder in folders.sorted(by: { $0.sortIndex < $1.sortIndex }) {
             result.append((folder, level))
@@ -594,6 +587,13 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         }
         return result
     }
+    
+    func controllerDidChangeContent(_ controller: NSFetchedResultsController<NSFetchRequestResult>) {
+        guard let folders = controller.fetchedObjects as? [Folder] else { return }
+        flatData = flattenFolders(folders.filter { $0.parent == nil })
+        tableView.reloadData()
+    }
+
     
     // MARK: - Toggle Folder
     /*func toggleFolder(for folder: FolderNode) {
