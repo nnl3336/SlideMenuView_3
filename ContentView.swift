@@ -29,7 +29,8 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
          )
         
         if let objects = fetchedResultsController.fetchedObjects {
-            flatData = flatten(folders: objects.filter { $0.parent == nil })
+            flatData = flattenFolders(objects.filter { $0.parent == nil })
+            tableView.reloadData()
         }
         
         tableView.translatesAutoresizingMaskIntoConstraints = false
@@ -50,6 +51,48 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     //***
     
     // MARK: - 階層Folder
+    
+    // MARK: - UITableViewDelegate コンテキストメニュー
+    func tableView(_ tableView: UITableView,
+                   contextMenuConfigurationForRowAt indexPath: IndexPath,
+                   point: CGPoint) -> UIContextMenuConfiguration? {
+
+        // セクション1 (coreData) のみ対象
+        guard indexPath.section == 1 else { return nil }
+
+        let folder = flatData[indexPath.row].folder
+
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in
+            let addChild = UIAction(title: "子フォルダ追加", image: UIImage(systemName: "folder.badge.plus")) { [weak self] _ in
+                self?.addChildFolder(to: folder)
+            }
+            return UIMenu(title: "", children: [addChild])
+        }
+    }
+    private func addChildFolder(to parentFolder: Folder) {
+        let alert = UIAlertController(title: "子フォルダ", message: "名前を入力してください", preferredStyle: .alert)
+        alert.addTextField { $0.placeholder = "フォルダ名" }
+
+        alert.addAction(UIAlertAction(title: "キャンセル", style: .cancel))
+        alert.addAction(UIAlertAction(title: "追加", style: .default, handler: { [weak self] _ in
+            guard let self = self else { return }
+            let name = alert.textFields?.first?.text ?? "無題"
+
+            let newFolder = Folder(context: self.context)
+            newFolder.folderName = name
+
+            // 子フォルダの sortIndex 計算
+            let children = (parentFolder.children as? Set<Folder>) ?? []
+            let maxSortIndex = children.map { $0.sortIndex }.max() ?? -1
+            newFolder.sortIndex = maxSortIndex + 1
+            newFolder.parent = parentFolder
+
+            do { try self.context.save() } catch { print(error) }
+            // NSFetchedResultsController が自動で controllerDidChangeContent を呼ぶ
+        }))
+
+        present(alert, animated: true)
+    }
     
     //矢印タップのfunc
     func chevronTapped(for folder: Folder, cell: CustomCell) {
@@ -379,8 +422,11 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         case .createdAt: request.sortDescriptors = [NSSortDescriptor(key: "folderMadeTime", ascending: ascending)]
         case .currentDate: request.sortDescriptors = [NSSortDescriptor(key: "currentDate", ascending: ascending)]
         }
-        request.predicate = NSPredicate(format: "parent == nil")
-        
+        request.predicate = nil
+        request.sortDescriptors = [
+            NSSortDescriptor(key: "sortIndex", ascending: true)
+        ]
+
         fetchedResultsController = NSFetchedResultsController(
             fetchRequest: request,
             managedObjectContext: context,
