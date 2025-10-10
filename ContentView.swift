@@ -521,7 +521,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         }
         
         tableView.endUpdates()
-    }*/
+    }*/ 
 
     func getDirectChildren(of folder: FolderNode) -> [FolderNode] {
         return folder.children ?? []
