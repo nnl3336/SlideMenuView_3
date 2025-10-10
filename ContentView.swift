@@ -492,16 +492,15 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     }
     
     // MARK: - セルタップ
-    func toggleFolder(for folder: Folder) {
+    func toggleFolder(for folder: Folder, cell: CustomCell) {
         guard let index = flatData.firstIndex(where: { $0.folder == folder }) else { return }
-
         let isExpanded = expandedState[ObjectIdentifier(folder)] ?? false
         expandedState[ObjectIdentifier(folder)] = !isExpanded
 
         tableView.beginUpdates()
 
         if isExpanded {
-            // 折りたたみ
+            // 折りたたみ: 全ての子孫を削除
             let childrenToRemove = visibleChildrenForExpand(of: folder)
             let startIndex = index + 1
             let endIndex = min(startIndex + childrenToRemove.count, flatData.count)
@@ -511,19 +510,23 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                 tableView.deleteRows(at: indexPaths, with: .fade)
             }
         } else {
-            // 展開
+            // 展開: 直下の子だけ追加（既存の flatData と重複しない）
             let children = (folder.children?.allObjects as? [Folder])?.sorted(by: { $0.sortIndex < $1.sortIndex }) ?? []
-            let childrenToInsert: [(folder: Folder, level: Int)] = children
-                .sorted(by: { $0.sortIndex < $1.sortIndex })
+            let startIndex = index + 1
+            let childrenToInsert = children
                 .map { (folder: $0, level: getLevel(of: $0)) }
                 .filter { insertItem in
                     !flatData.contains(where: { $0.folder == insertItem.folder })
-                } // まだ flatData にないものだけ
-            let startIndex = index + 1
+                }
+            guard !childrenToInsert.isEmpty else { tableView.endUpdates(); return }
+
             flatData.insert(contentsOf: childrenToInsert, at: startIndex)
             let indexPaths = (0..<childrenToInsert.count).map { IndexPath(row: startIndex + $0, section: 1) }
             tableView.insertRows(at: indexPaths, with: .fade)
         }
+
+        // 矢印回転
+        cell.rotateChevron(expanded: !isExpanded)
 
         tableView.endUpdates()
     }
