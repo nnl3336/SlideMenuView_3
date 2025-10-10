@@ -33,6 +33,11 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             tableView.reloadData()
         }
         
+        let savedSortRaw = UserDefaults.standard.integer(forKey: "currentSort")
+        currentSort = SortType(rawValue: savedSortRaw) ?? .createdAt
+
+        ascending = UserDefaults.standard.bool(forKey: "ascending")
+        
         tableView.translatesAutoresizingMaskIntoConstraints = false
         bottomToolbar.translatesAutoresizingMaskIntoConstraints = false
         
@@ -754,9 +759,20 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     private var headerStackView: UIStackView!
     private let bottomToolbar = UIToolbar()
     
-    enum SortType { case order, title, createdAt, currentDate }
-    private var currentSort: SortType = .title
-    private var ascending: Bool = true
+    enum SortType: Int {
+        case order = 0
+        case title = 1
+        case createdAt = 2
+        case currentDate = 3
+    }
+    private var currentSort: SortType = .createdAt {
+        didSet { UserDefaults.standard.set(currentSort.rawValue, forKey: "currentSort") }
+    }
+
+    private var ascending: Bool = true {
+        didSet { UserDefaults.standard.set(ascending, forKey: "ascending") }
+    }
+    
     
     var selectedFolders: Set<Folder> = []
     var bottomToolbarState: BottomToolbarState = .normal {
