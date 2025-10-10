@@ -424,16 +424,17 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     // MARK: - FRC
     private func setupFRC() {
         let request: NSFetchRequest<Folder> = Folder.fetchRequest()
+        
         switch currentSort {
-        case .order: request.sortDescriptors = [NSSortDescriptor(key: "sortIndex", ascending: ascending)]
-        case .title: request.sortDescriptors = [NSSortDescriptor(key: "folderName", ascending: ascending)]
-        case .createdAt: request.sortDescriptors = [NSSortDescriptor(key: "folderMadeTime", ascending: ascending)]
-        case .currentDate: request.sortDescriptors = [NSSortDescriptor(key: "currentDate", ascending: ascending)]
+        case .order:
+            request.sortDescriptors = [NSSortDescriptor(key: "sortIndex", ascending: ascending)]
+        case .title:
+            request.sortDescriptors = [NSSortDescriptor(key: "folderName", ascending: ascending)]
+        case .createdAt:
+            request.sortDescriptors = [NSSortDescriptor(key: "folderMadeTime", ascending: ascending)]
+        case .currentDate:
+            request.sortDescriptors = [NSSortDescriptor(key: "currentDate", ascending: ascending)]
         }
-        request.predicate = nil
-        request.sortDescriptors = [
-            NSSortDescriptor(key: "sortIndex", ascending: true)
-        ]
 
         fetchedResultsController = NSFetchedResultsController(
             fetchRequest: request,
@@ -442,15 +443,19 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             cacheName: nil
         )
         fetchedResultsController.delegate = self
-        
+
         do {
             try fetchedResultsController.performFetch()
+            // flattenFolders のソート関数も currentSort/ascending に合わせる
+            if let objects = fetchedResultsController.fetchedObjects {
+                flatData = flattenFolders(objects.filter { $0.parent == nil })
+            }
             tableView.reloadData()
         } catch {
             print("❌ Fetch error: \(error)")
         }
     }
-    
+
     // MARK: - UITableView DataSource
     // MARK: - セル個数
     func numberOfSections(in tableView: UITableView) -> Int {
@@ -660,7 +665,20 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     //フラット化
     private func flattenFolders(_ folders: [Folder], level: Int = 0) -> [(folder: Folder, level: Int)] {
         var result: [(folder: Folder, level: Int)] = []
-        for folder in folders.sorted(by: { $0.sortIndex < $1.sortIndex }) {
+        
+        let sortedFolders: [Folder]
+        switch currentSort {
+        case .order:
+            sortedFolders = folders.sorted { ascending ? $0.sortIndex < $1.sortIndex : $0.sortIndex > $1.sortIndex }
+        case .title:
+            sortedFolders = folders.sorted { ascending ? ($0.folderName ?? "") < ($1.folderName ?? "") : ($0.folderName ?? "") > ($1.folderName ?? "") }
+        case .createdAt:
+            sortedFolders = folders.sorted { ascending ? ($0.folderMadeTime ?? Date()) < ($1.folderMadeTime ?? Date()) : ($0.folderMadeTime ?? Date()) > ($1.folderMadeTime ?? Date()) }
+        case .currentDate:
+            sortedFolders = folders.sorted { ascending ? ($0.currentDate ?? Date()) < ($1.currentDate ?? Date()) : ($0.currentDate ?? Date()) > ($1.currentDate ?? Date()) }
+        }
+        
+        for folder in sortedFolders {
             result.append((folder, level))
             if expandedState[ObjectIdentifier(folder)] == true,
                let children = folder.children?.allObjects as? [Folder] {
@@ -669,6 +687,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         }
         return result
     }
+
     
     func controllerDidChangeContent(_ controller: NSFetchedResultsController<NSFetchRequestResult>) {
         guard let folders = controller.fetchedObjects as? [Folder] else { return }
