@@ -17,6 +17,17 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
         
+        
+        let savedSortRaw = UserDefaults.standard.integer(forKey: "currentSort")
+        currentSort = SortType(rawValue: savedSortRaw) ?? .createdAt
+
+        ascending = UserDefaults.standard.bool(forKey: "ascending")
+        
+        tableView.translatesAutoresizingMaskIntoConstraints = false
+        bottomToolbar.translatesAutoresizingMaskIntoConstraints = false
+        
+        ///
+        
         setupTableView()
         
         setupSearchAndSortHeader()
@@ -32,14 +43,6 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             flatData = flattenFolders(objects.filter { $0.parent == nil })
             tableView.reloadData()
         }
-        
-        let savedSortRaw = UserDefaults.standard.integer(forKey: "currentSort")
-        currentSort = SortType(rawValue: savedSortRaw) ?? .createdAt
-
-        ascending = UserDefaults.standard.bool(forKey: "ascending")
-        
-        tableView.translatesAutoresizingMaskIntoConstraints = false
-        bottomToolbar.translatesAutoresizingMaskIntoConstraints = false
         
         NSLayoutConstraint.activate([
             tableView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
@@ -768,7 +771,6 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     private var currentSort: SortType = .createdAt {
         didSet { UserDefaults.standard.set(currentSort.rawValue, forKey: "currentSort") }
     }
-
     private var ascending: Bool = true {
         didSet { UserDefaults.standard.set(ascending, forKey: "ascending") }
     }
