@@ -687,13 +687,56 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         }
         return result
     }
+    
+    // MARK: - 並び替え
+    
+    // MARK: - 並び替え用編集スタイル
+    func tableView(_ tableView: UITableView, editingStyleForRowAt indexPath: IndexPath) -> UITableViewCell.EditingStyle {
+        // SortType が order のときはハンドルだけ表示、削除は不可
+        if currentSort == .order && indexPath.section == 1 {
+            return .none
+        } else {
+            // 普通の編集モード（削除あり）なら .delete
+            return .delete
+        }
+    }
+
+    // 並び替え可能かどうか
+    func tableView(_ tableView: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool {
+        // section 1 のみ並び替え可能
+        return currentSort == .order && indexPath.section == 1
+    }
+
+    // 並び替え後の処理
+    var isMovingRow = false
+
+    func tableView(_ tableView: UITableView, moveRowAt sourceIndexPath: IndexPath, to destinationIndexPath: IndexPath) {
+        isMovingRow = true
+
+        let movedItem = flatData.remove(at: sourceIndexPath.row)
+        flatData.insert(movedItem, at: destinationIndexPath.row)
+
+        for (index, item) in flatData.enumerated() {
+            item.folder.sortIndex = Int64(index)
+        }
+
+        try? context.save()
+        isMovingRow = false
+    }
+
+
 
     
     func controllerDidChangeContent(_ controller: NSFetchedResultsController<NSFetchRequestResult>) {
+        if suppressFRCUpdates || isMovingRow { return } // ←移動中は無視
+
         guard let folders = controller.fetchedObjects as? [Folder] else { return }
         flatData = flattenFolders(folders.filter { $0.parent == nil })
         tableView.reloadData()
+        
+        // ascending を変更する処理もここに書くなら isMovingRow == false の時だけ
     }
+
 
     
     // MARK: - Toggle Folder
