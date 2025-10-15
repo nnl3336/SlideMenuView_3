@@ -9,6 +9,8 @@ import SwiftUI
 import CoreData
 import UIKit
 
+// MARK: - エディット
+
 class FolderViewController: UIViewController, UITableViewDataSource, UITableViewDelegate, NSFetchedResultsControllerDelegate, UISearchBarDelegate {
     
     //***
@@ -289,25 +291,31 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         return UIMenu(title: "並び替え", children: [
             UIAction(title: "作成日", image: UIImage(systemName: "calendar"),
                      state: currentSort == .createdAt ? .on : .off) { [weak self] _ in
-                         guard let self = self else { return }
-                         self.currentSort = .createdAt
-                         self.setupFRC()
-                         if let button = self.sortButton { button.menu = self.makeSortMenu() }
-                     },
+                guard let self = self else { return }
+                self.currentSort = .createdAt
+                self.setupFRC()
+                // 編集モードを解除
+                self.tableView.setEditing(false, animated: true)
+                if let button = self.sortButton { button.menu = self.makeSortMenu() }
+            },
+
             UIAction(title: "名前", image: UIImage(systemName: "textformat"),
                      state: currentSort == .title ? .on : .off) { [weak self] _ in
-                         guard let self = self else { return }
-                         self.currentSort = .title
-                         self.setupFRC()
-                         if let button = self.sortButton { button.menu = self.makeSortMenu() }
-                     },
+                guard let self = self else { return }
+                self.currentSort = .title
+                self.setupFRC()
+                self.tableView.setEditing(false, animated: true)
+                if let button = self.sortButton { button.menu = self.makeSortMenu() }
+            },
+
             UIAction(title: "追加日", image: UIImage(systemName: "clock"),
                      state: currentSort == .currentDate ? .on : .off) { [weak self] _ in
-                         guard let self = self else { return }
-                         self.currentSort = .currentDate
-                         self.setupFRC()
-                         if let button = self.sortButton { button.menu = self.makeSortMenu() }
-                     },
+                guard let self = self else { return }
+                self.currentSort = .currentDate
+                self.setupFRC()
+                self.tableView.setEditing(false, animated: true)
+                if let button = self.sortButton { button.menu = self.makeSortMenu() }
+            },
             // 1. UIAction 内で編集モードに切り替え
             UIAction(title: "順番", image: UIImage(systemName: "list.number"),
                      state: currentSort == .order ? .on : .off) { [weak self] _ in
@@ -456,7 +464,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         }
     }
 
-    // MARK: - UITableView DataSource
+    // MARK: - UITableView DataSource　データソース
     // MARK: - セル個数
     func numberOfSections(in tableView: UITableView) -> Int {
         if isSearching {
@@ -484,6 +492,8 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             }
         }
     }
+    
+    // MARK: - UITableViewDataSource　データソース
 
     // まず expandedState を ObjectIdentifier に変更
     private var expandedState: [ObjectIdentifier: Bool] = [:]
@@ -595,7 +605,6 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
         tableView.endUpdates()
     }
-
     // 再帰的に開いている子孫を取得
     private func getExpandedDescendants(of folder: Folder, level: Int) -> [(folder: Folder, level: Int)] {
         var result: [(folder: Folder, level: Int)] = []
@@ -609,8 +618,6 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         }
         return result
     }
-
-
     // 指定フォルダの全ての子孫の flatData 上のインデックスを返す
     private func indicesOfDescendants(startingAt parentIndex: Int) -> [Int] {
         let parentLevel = flatData[parentIndex].level
@@ -626,8 +633,6 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         }
         return indices
     }
-
-
     func handleNormalTap(_ text: String) {
         print("ノーマルセルタップ: \(text)")
         // ここに詳細画面遷移やアクションを追加
@@ -636,8 +641,6 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         print("検索結果のフォルダタップ: \(folder.name)")
         // ここに詳細画面遷移やフォルダ開閉処理を追加
     }
-
-
     
     // MARK: - Helpers
     private func flatten(folders: [Folder]) -> [Folder] {
@@ -723,9 +726,6 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         try? context.save()
         isMovingRow = false
     }
-
-
-
     
     func controllerDidChangeContent(_ controller: NSFetchedResultsController<NSFetchRequestResult>) {
         if suppressFRCUpdates || isMovingRow { return } // ←移動中は無視
@@ -736,8 +736,6 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         
         // ascending を変更する処理もここに書くなら isMovingRow == false の時だけ
     }
-
-
     
     // MARK: - Toggle Folder
     /*func toggleFolder(for folder: FolderNode) {
@@ -783,7 +781,6 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         traverse(node: folder)
         return result
     }
-
 
     private func visibleChildrenForExpand(of folder: Folder) -> [Folder] {
         let children = (folder.children?.allObjects as? [Folder])?.sorted { $0.sortIndex < $1.sortIndex } ?? []
