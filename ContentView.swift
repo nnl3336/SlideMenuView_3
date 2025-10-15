@@ -62,6 +62,22 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     
     // MARK: - 階層Folder
     
+    // MARK: - セクションヘッダー
+    func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+        if isSearching {
+            let level = sortedLevels[section]
+            return "第\(level + 1)階層"
+        } else {
+            switch section {
+            case 0: return "通常セクション（前）"
+            case 1: return "フォルダ"
+            case 2: return "通常セクション（後）"
+            default: return nil
+            }
+        }
+    }
+
+    
     // MARK: - UITableViewDelegate コンテキストメニュー
     func tableView(_ tableView: UITableView,
                    contextMenuConfigurationForRowAt indexPath: IndexPath,
@@ -470,14 +486,19 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         if isSearching {
             return sortedLevels.count
         } else {
-            return 3 // normalBefore, coreData, normalAfter
+            // 通常表示でも階層ごとにセクション化
+            let coreLevels = flatData.map { $0.level }
+            let uniqueCoreLevels = Array(Set(coreLevels)).sorted()
+            // normalBefore と normalAfter を別にセクションとして加える場合
+            var count = uniqueCoreLevels.count
+            if !normalBefore.isEmpty { count += 1 }
+            if !normalAfter.isEmpty { count += 1 }
+            return count
         }
     }
+
     
     // MARK: - セル表示
-    func tableView(_ tableView: UITableView, numberOfSections section: Int) -> Int {
-        return 1
-    }
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         if isSearching {
