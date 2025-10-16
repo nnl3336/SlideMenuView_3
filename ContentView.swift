@@ -54,6 +54,10 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         tableView.dataSource = self
         tableView.delegate = self
         view.addSubview(tableView)
+        
+        tableView.register(CustomCell.self, forCellReuseIdentifier: CustomCell.reuseID)
+
+        
     }
 
     // MARK: - Fetch
@@ -142,49 +146,74 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
 
-        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+        let folder = flattenedFolders[indexPath.row]
 
-        if isSearching {
-            // --- 検索モード ---
-            let level = sortedLevels[indexPath.section]
-            if let folder = groupedByLevel[level]?[indexPath.row] {
-                cell.textLabel?.text = folder.folderName
+        // CustomCellを使う（systemName対応）
+        let cell = tableView.dequeueReusableCell(withIdentifier: CustomCell.reuseID, for: indexPath) as! CustomCell
 
-                // インデント
-                let indent = Int(folder.level) * 20
-                cell.indentationLevel = Int(folder.level)
-                cell.indentationWidth = 20
-                cell.separatorInset = UIEdgeInsets(top: 0, left: CGFloat(indent), bottom: 0, right: 0)
+        // アイコンと名前を設定
+        cell.configureCell(
+            name: folder.folderName ?? "無題",
+            level: Int(folder.level),
+            isExpanded: expandedFolders.contains(folder),
+            hasChildren: (folder.children?.count ?? 0) > 0,
+            systemName: "folder"  // ここでSF Symbolを設定
+        )
 
-                // 親フォルダだけ矢印
-                if let children = folder.children, children.count > 0 {
-                    cell.accessoryType = expandedFolders.contains(folder) ? .detailDisclosureButton : .disclosureIndicator
-                } else {
-                    cell.accessoryType = .none
-                }
+        // インデント
+        let indent = Int(folder.level) * 20
+        cell.separatorInset = UIEdgeInsets(top: 0, left: CGFloat(indent), bottom: 0, right: 0)
+
+        // 矢印タップで開閉
+        if let children = folder.children?.allObjects as? [Folder], !children.isEmpty {
+            cell.chevronTapped = { [weak self, weak cell] in
+                guard let self = self, let cell = cell else { return }
+
+                let isExpanded = self.expandedFolders.contains(folder)
+
+                tableView.beginUpdates()
+                self.toggleFolder(folder)
+                tableView.endUpdates()
+
+                // アニメーションで矢印回転
+                cell.rotateChevron(expanded: !isExpanded)
             }
-
         } else {
-            // --- 通常モード ---
-            let folder = flattenedFolders[indexPath.row]
-            cell.textLabel?.text = folder.folderName
-
-            // インデント
-            let indent = Int(folder.level) * 20
-            cell.indentationLevel = Int(folder.level)
-            cell.indentationWidth = 20
-            cell.separatorInset = UIEdgeInsets(top: 0, left: CGFloat(indent), bottom: 0, right: 0)
-
-            // 親フォルダだけ矢印
-            if let children = folder.children, children.count > 0 {
-                cell.accessoryType = expandedFolders.contains(folder) ? .detailDisclosureButton : .disclosureIndicator
-            } else {
-                cell.accessoryType = .none
-            }
+            cell.chevronTapped = nil
         }
 
         return cell
     }
+    func toggleFolder(_ folder: Folder) {
+        guard let startIndex = flattenedFolders.firstIndex(of: folder) else { return }
+        let isExpanded = expandedFolders.contains(folder)
+
+        tableView.beginUpdates()
+
+        if isExpanded {
+            // 折りたたむ
+            var endIndex = startIndex + 1
+            while endIndex < flattenedFolders.count,
+                  flattenedFolders[endIndex].level > folder.level {
+                endIndex += 1
+            }
+            flattenedFolders.removeSubrange((startIndex + 1)..<endIndex)
+            let indexPaths = (startIndex + 1..<endIndex).map { IndexPath(row: $0, section: 0) }
+            tableView.deleteRows(at: indexPaths, with: .fade)
+            expandedFolders.remove(folder)
+        } else {
+            // 展開
+            let children = (folder.children?.allObjects as? [Folder])?
+                .sorted(by: { $0.sortIndex < $1.sortIndex }) ?? []
+            flattenedFolders.insert(contentsOf: children, at: startIndex + 1)
+            let indexPaths = (0..<children.count).map { IndexPath(row: startIndex + 1 + $0, section: 0) }
+            tableView.insertRows(at: indexPaths, with: .fade)
+            expandedFolders.insert(folder)
+        }
+
+        tableView.endUpdates()
+    }
+
 
     // MARK: - UITableViewDelegate
 
