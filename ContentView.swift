@@ -41,6 +41,9 @@ final class FolderViewController: UIViewController, UITableViewDataSource, UITab
         if let objects = normalFRC.fetchedObjects {
             flatData = flattenFolders(objects.filter { $0.parent == nil })
         }
+        
+        updateAllFolderLevels()
+
     }
     
     // MARK: - Setup
@@ -100,6 +103,26 @@ final class FolderViewController: UIViewController, UITableViewDataSource, UITab
     }
     
     // MARK: - Search
+    
+    func updateAllFolderLevels() {
+        let request: NSFetchRequest<Folder> = Folder.fetchRequest()
+        if let allFolders = try? context.fetch(request) {
+            for folder in allFolders where folder.parent == nil {
+                updateLevelRecursively(folder, level: 0)
+            }
+            try? context.save()
+        }
+    }
+
+    func updateLevelRecursively(_ folder: Folder, level: Int64) {
+        folder.level = level
+        if let children = folder.children as? Set<Folder> {
+            for child in children {
+                updateLevelRecursively(child, level: level + 1)
+            }
+        }
+    }
+
     
     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
         if searchText.isEmpty {
