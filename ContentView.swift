@@ -68,15 +68,9 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             let level = sortedLevels[section]
             return "第\(level + 1)階層"
         } else {
-            switch section {
-            case 0: return "通常セクション（前）"
-            case 1: return "フォルダ"
-            case 2: return "通常セクション（後）"
-            default: return nil
-            }
+            return nil // 通常時はヘッダーなし
         }
     }
-
     
     // MARK: - UITableViewDelegate コンテキストメニュー
     func tableView(_ tableView: UITableView,
@@ -169,6 +163,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         return result
     }
     // MARK: - Step 1: モデル定義　基本プロパティ
+    
     class FolderNode: Equatable {
         let id: UUID
         let name: String
@@ -210,6 +205,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     
     // MARK: - Step 2: ダミーデータ
     
+    
     // MARK: - Step 3: flattenしてlevelを付与
     // FolderNodeを削除して、Folderを直接使う
     func flattenWithLevel(nodes: [FolderNode], level: Int = 0) -> [(node: FolderNode, level: Int)] {
@@ -239,7 +235,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         }
         tableView.reloadData()
     }
-    
+
     
     
     // MARK: - Step 5: TableViewController
@@ -484,53 +480,83 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     // MARK: - セル個数
     func numberOfSections(in tableView: UITableView) -> Int {
         if isSearching {
+            sortedLevels = groupedCoreData.keys.sorted() // ←ここでレベル順にソート
             return sortedLevels.count
         } else {
-            // 通常表示でも階層ごとにセクション化
-            let coreLevels = flatData.map { $0.level }
-            let uniqueCoreLevels = Array(Set(coreLevels)).sorted()
-            // normalBefore と normalAfter を別にセクションとして加える場合
-            var count = uniqueCoreLevels.count
-            if !normalBefore.isEmpty { count += 1 }
-            if !normalAfter.isEmpty { count += 1 }
-            return count
+            return 1 // 通常時は1セクション
         }
     }
 
+
+
     
     // MARK: - セル表示
+    
+    // ContentView または ViewController の先頭で
+    @State var coreDataResults: [FolderNode] = []
+
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         if isSearching {
             let level = sortedLevels[section]
             return groupedCoreData[level]?.count ?? 0
         } else {
-            switch section {
-            case 0: return normalBefore.count
-            case 1: return flatData.count
-            case 2: return normalAfter.count
-            default: return 0
-            }
+            return normalBefore.count + flatData.count + normalAfter.count
         }
     }
+
+
     
     // MARK: - UITableViewDataSource　データソース
 
     // まず expandedState を ObjectIdentifier に変更
     private var expandedState: [ObjectIdentifier: Bool] = [:]
+    
+    func numberOfSections(in tableView: UITableView) -> Int {
+        return isSearching ? sortedLevels.count : 1
+    }
+
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        guard isSearching else { return flatData.count } // 通常モードは仮
+        let level = sortedLevels[section]
+        return groupedCoreData[level]?.count ?? 0
+    }
+
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        guard isSearching else {
+            // 通常モードはまだ無視
+            return UITableViewCell()
+        }
+
+        let level = sortedLevels[indexPath.section]
+        guard let folderNode = groupedCoreData[level]?[indexPath.row] else {
+            return UITableViewCell()
+        }
+
+        let cell = tableView.dequeueReusableCell(withIdentifier: CustomCell.reuseID, for: indexPath) as! CustomCell
+        cell.configureCell(
+            name: folderNode.name,
+            level: folderNode.level,
+            isExpanded: false, // 検索時は展開なし
+            hasChildren: !folderNode.children.isEmpty,
+            systemName: "folder"
+        )
+        return cell
+    }
+
 
     // MARK: - セル表示
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         if isSearching {
             let level = sortedLevels[indexPath.section]
-            let node = groupedCoreData[level]?[indexPath.row]
+            let folderNode = groupedCoreData[level]?[indexPath.row]
             let cell = tableView.dequeueReusableCell(withIdentifier: CustomCell.reuseID, for: indexPath) as! CustomCell
-            if let node = node {
+            if let folderNode = folderNode {
                 cell.configureCell(
-                    name: node.name,
-                    level: node.level,
+                    name: folderNode.name,
+                    level: folderNode.level,
                     isExpanded: false,
-                    hasChildren: !node.children.isEmpty,
+                    hasChildren: !folderNode.children.isEmpty,
                     systemName: "folder"
                 )
             }
