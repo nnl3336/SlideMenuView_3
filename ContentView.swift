@@ -181,6 +181,9 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         } else {
             cell.chevronTapped = nil
         }
+        
+        // TableView を管理している ViewController 側
+        cell.setSearching(isSearching)
 
         return cell
     }

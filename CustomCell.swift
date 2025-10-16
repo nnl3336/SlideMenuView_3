@@ -74,11 +74,27 @@ final class CustomCell: UITableViewCell {
         titleLabel.numberOfLines = 0
     }
 
+    private var isSearching = false
     
     @objc private func chevronTappedAction() {
-        // コールバックを呼ぶ
+        guard !isSearching else { return }   // 検索中は無視
         chevronTapped?()
     }
+    
+    func setSearching(_ searching: Bool) {
+        self.isSearching = searching
+        
+        if searching {
+            chevronIcon.alpha = 0.5
+            chevronIcon.isUserInteractionEnabled = false
+            chevronIcon.tintColor = .systemGray // 青にする
+        } else {
+            chevronIcon.alpha = 1.0
+            chevronIcon.isUserInteractionEnabled = true
+            chevronIcon.tintColor = .systemBlue // 通常はグレー
+        }
+    }
+
     
     func rotateChevron(expanded: Bool, animated: Bool = true) {
         let angle: CGFloat = expanded ? .pi/2 : 0 // 右向き→下向き
