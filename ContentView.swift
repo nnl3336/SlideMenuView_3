@@ -13,227 +13,121 @@ import UIKit
 import UIKit
 import CoreData
 
-final class FolderViewController: UIViewController, UITableViewDataSource, UITableViewDelegate, UISearchBarDelegate, NSFetchedResultsControllerDelegate {
-    
+class FolderViewController: UIViewController, UITableViewDataSource, UITableViewDelegate, NSFetchedResultsControllerDelegate, UISearchBarDelegate {
+
+    var tableView: UITableView!
+    var searchBar: UISearchBar!
+
     var context: NSManagedObjectContext!
-    var tableView = UITableView()
-    var searchBar = UISearchBar()
-    
-    // 通常モード用
-    var normalFRC: NSFetchedResultsController<Folder>!
-    var flatData: [FolderNode] = []
-    
-    // 検索モード用
-    var searchFRC: NSFetchedResultsController<Folder>!
-    var isSearching = false
-    
+    var fetchedResultsController: NSFetchedResultsController<Folder>!
+
+    var groupedByLevel: [Int64: [Folder]] = [:]
+    var sortedLevels: [Int64] = []
+    var expandedFolders: Set<Folder> = []
+
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Folders"
+        setupUI()
+        fetchFolders()
+    }
+
+    private func setupUI() {
         view.backgroundColor = .systemBackground
-        
-        setupTableView()
-        setupSearchBar()
-        setupNormalFRC()
-        setupSearchFRC()
-        
-        try? normalFRC.performFetch()
-        if let objects = normalFRC.fetchedObjects {
-            flatData = flattenFolders(objects.filter { $0.parent == nil })
-        }
-        
-        updateAllFolderLevels()
 
-    }
-    
-    // MARK: - Setup
-    
-    func setupTableView() {
-        tableView.delegate = self
-        tableView.dataSource = self
-        tableView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(tableView)
-        
-        NSLayoutConstraint.activate([
-            tableView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 50),
-            tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        ])
-    }
-    
-    func setupSearchBar() {
+        searchBar = UISearchBar()
         searchBar.delegate = self
-        searchBar.placeholder = "Search folders"
-        searchBar.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(searchBar)
-        
-        NSLayoutConstraint.activate([
-            searchBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            searchBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            searchBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            searchBar.heightAnchor.constraint(equalToConstant: 50)
-        ])
+        searchBar.placeholder = "フォルダ名を検索"
+        navigationItem.titleView = searchBar
+
+        tableView = UITableView(frame: view.bounds, style: .insetGrouped)
+        tableView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        tableView.dataSource = self
+        tableView.delegate = self
+        view.addSubview(tableView)
     }
-    
-    func setupNormalFRC() {
+
+    private func fetchFolders(predicate: NSPredicate? = nil) {
         let request: NSFetchRequest<Folder> = Folder.fetchRequest()
-        request.sortDescriptors = [NSSortDescriptor(key: "folderMadeTime", ascending: true)]
-        normalFRC = NSFetchedResultsController(fetchRequest: request,
-                                               managedObjectContext: context,
-                                               sectionNameKeyPath: nil,
-                                               cacheName: nil)
-        normalFRC.delegate = self
-    }
-    
-    func setupSearchFRC() {
-        let request: NSFetchRequest<Folder> = Folder.fetchRequest()
-        request.sortDescriptors = [
-            NSSortDescriptor(key: "level", ascending: true),
-            NSSortDescriptor(key: "folderName", ascending: true)
-        ]
-        
-        searchFRC = NSFetchedResultsController(
-            fetchRequest: request,
-            managedObjectContext: context,
-            sectionNameKeyPath: "level", // 階層でセクション化！
-            cacheName: nil
-        )
-        searchFRC.delegate = self
-    }
-    
-    // MARK: - Search
-    
-    func updateAllFolderLevels() {
-        let request: NSFetchRequest<Folder> = Folder.fetchRequest()
-        if let allFolders = try? context.fetch(request) {
-            for folder in allFolders where folder.parent == nil {
-                updateLevelRecursively(folder, level: 0)
-            }
-            try? context.save()
+        request.sortDescriptors = [NSSortDescriptor(key: "level", ascending: true),
+                                   NSSortDescriptor(key: "sortIndex", ascending: true)]
+
+        if let predicate = predicate {
+            request.predicate = predicate
+        }
+
+        fetchedResultsController = NSFetchedResultsController(fetchRequest: request,
+                                                              managedObjectContext: context,
+                                                              sectionNameKeyPath: nil,
+                                                              cacheName: nil)
+        fetchedResultsController.delegate = self
+
+        do {
+            try fetchedResultsController.performFetch()
+            groupFoldersByLevel()
+        } catch {
+            print("Fetch failed: \(error)")
         }
     }
 
-    func updateLevelRecursively(_ folder: Folder, level: Int64) {
-        folder.level = level
-        if let children = folder.children as? Set<Folder> {
-            for child in children {
-                updateLevelRecursively(child, level: level + 1)
-            }
-        }
+    private func groupFoldersByLevel() {
+        guard let folders = fetchedResultsController.fetchedObjects else { return }
+
+        groupedByLevel = Dictionary(grouping: folders, by: { Int64($0.level) })
+        sortedLevels = groupedByLevel.keys.sorted()
+        tableView.reloadData()
     }
 
-    
-    func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
-        if searchText.isEmpty {
-            isSearching = false
-            try? normalFRC.performFetch()
-            if let objects = normalFRC.fetchedObjects {
-                flatData = flattenFolders(objects.filter { $0.parent == nil })
-            }
-        } else {
-            isSearching = true
-            let predicate = NSPredicate(format: "folderName CONTAINS[cd] %@", searchText)
-            searchFRC.fetchRequest.predicate = predicate
-            try? searchFRC.performFetch()
-        }
-        tableView.reloadData()
-    }
-    
-    func searchBarCancelButtonClicked(_ searchBar: UISearchBar) {
-        searchBar.text = ""
-        isSearching = false
-        try? normalFRC.performFetch()
-        if let objects = normalFRC.fetchedObjects {
-            flatData = flattenFolders(objects.filter { $0.parent == nil })
-        }
-        tableView.reloadData()
-    }
-    
-    // MARK: - TableView
-    
+    // MARK: - UITableViewDataSource
+
     func numberOfSections(in tableView: UITableView) -> Int {
-        if isSearching {
-            return searchFRC.sections?.count ?? 0
-        } else {
-            return 1
-        }
+        return sortedLevels.count
     }
 
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        if isSearching {
-            if let sectionInfo = searchFRC.sections?[section],
-               let levelInt = Int(sectionInfo.name) {
-                return "第\(levelInt + 1)階層"
-            }
-        }
-        return nil
+        let level = sortedLevels[section]
+        return "第\(level + 1)階層"
     }
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        if isSearching {
-            return searchFRC.sections?[section].numberOfObjects ?? 0
-        } else {
-            return flatData.count
-        }
+        let level = sortedLevels[section]
+        return groupedByLevel[level]?.count ?? 0
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = UITableViewCell(style: .default, reuseIdentifier: "cell")
-        
-        if isSearching {
-            let folder = searchFRC.object(at: indexPath)
-            cell.textLabel?.text = folder.folderName
-            cell.indentationLevel = Int(folder.level)
-        } else {
-            let node = flatData[indexPath.row]
-            cell.textLabel?.text = String(repeating: "　", count: Int(node.level)) + (node.folder.folderName ?? "")
+
+        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+        let level = sortedLevels[indexPath.section]
+        if let folder = groupedByLevel[level]?[indexPath.row] {
+            cell.textLabel?.text = folder.folderName ?? "(no name)"
+            cell.accessoryType = expandedFolders.contains(folder) ? .detailDisclosureButton : .disclosureIndicator
         }
         return cell
     }
-        
+
+    // MARK: - UITableViewDelegate
+
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        guard !isSearching else { return } // 検索中は開閉なし
-        
-        let node = flatData[indexPath.row]
-        toggleFolder(node.folder)
-    }
-    
-    // MARK: - 展開・折りたたみ
-    
-    func toggleFolder(_ folder: Folder) {
-        guard let startIndex = flatData.firstIndex(where: { $0.folder == folder }) else { return }
-        
-        folder.isExpanded.toggle()
-        
-        if folder.isExpanded {
-            // 展開
-            if let children = folder.children as? Set<Folder> {
-                let nodes = flattenFolders(Array(children), level: Int64(folder.level + 1))
-                flatData.insert(contentsOf: nodes, at: startIndex + 1)
-            }
+        let level = sortedLevels[indexPath.section]
+        guard let folder = groupedByLevel[level]?[indexPath.row] else { return }
+
+        if expandedFolders.contains(folder) {
+            expandedFolders.remove(folder)
         } else {
-            // 折りたたみ
-            var removeCount = 0
-            var i = startIndex + 1
-            while i < flatData.count && flatData[i].level > folder.level {
-                removeCount += 1
-                i += 1
-            }
-            flatData.removeSubrange((startIndex + 1)...(startIndex + removeCount))
+            expandedFolders.insert(folder)
         }
-        tableView.reloadData()
+
+        tableView.reloadRows(at: [indexPath], with: .automatic)
     }
-    
-    func flattenFolders(_ folders: [Folder], level: Int64 = 0) -> [FolderNode] {
-        var result: [FolderNode] = []
-        for folder in folders.sorted(by: { $0.sortIndex < $1.sortIndex }) {
-            result.append(FolderNode(folder: folder, level: level))
-            if folder.isExpanded, let children = folder.children as? Set<Folder> {
-                result += flattenFolders(Array(children), level: level + 1)
-            }
+
+    // MARK: - UISearchBarDelegate
+
+    func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
+        if searchText.isEmpty {
+            fetchFolders()
+        } else {
+            let predicate = NSPredicate(format: "folderName CONTAINS[c] %@", searchText)
+            fetchFolders(predicate: predicate)
         }
-        return result
     }
 }
 
