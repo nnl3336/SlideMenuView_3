@@ -145,19 +145,42 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
 
         if isSearching {
+            // --- 検索モード ---
             let level = sortedLevels[indexPath.section]
             if let folder = groupedByLevel[level]?[indexPath.row] {
                 cell.textLabel?.text = folder.folderName
+
+                // インデント
+                let indent = Int(folder.level) * 20
+                cell.indentationLevel = Int(folder.level)
+                cell.indentationWidth = 20
+                cell.separatorInset = UIEdgeInsets(top: 0, left: CGFloat(indent), bottom: 0, right: 0)
+
+                // 親フォルダだけ矢印
+                if let children = folder.children, children.count > 0 {
+                    cell.accessoryType = expandedFolders.contains(folder) ? .detailDisclosureButton : .disclosureIndicator
+                } else {
+                    cell.accessoryType = .none
+                }
             }
+
         } else {
+            // --- 通常モード ---
             let folder = flattenedFolders[indexPath.row]
             cell.textLabel?.text = folder.folderName
 
+            // インデント
             let indent = Int(folder.level) * 20
             cell.indentationLevel = Int(folder.level)
             cell.indentationWidth = 20
-            cell.accessoryType = expandedFolders.contains(folder) ? .detailDisclosureButton : .disclosureIndicator
             cell.separatorInset = UIEdgeInsets(top: 0, left: CGFloat(indent), bottom: 0, right: 0)
+
+            // 親フォルダだけ矢印
+            if let children = folder.children, children.count > 0 {
+                cell.accessoryType = expandedFolders.contains(folder) ? .detailDisclosureButton : .disclosureIndicator
+            } else {
+                cell.accessoryType = .none
+            }
         }
 
         return cell
