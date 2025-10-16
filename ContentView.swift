@@ -85,11 +85,17 @@ final class FolderViewController: UIViewController, UITableViewDataSource, UITab
     
     func setupSearchFRC() {
         let request: NSFetchRequest<Folder> = Folder.fetchRequest()
-        request.sortDescriptors = [NSSortDescriptor(key: "folderMadeTime", ascending: true)]
-        searchFRC = NSFetchedResultsController(fetchRequest: request,
-                                               managedObjectContext: context,
-                                               sectionNameKeyPath: nil,
-                                               cacheName: nil)
+        request.sortDescriptors = [
+            NSSortDescriptor(key: "level", ascending: true),
+            NSSortDescriptor(key: "folderName", ascending: true)
+        ]
+        
+        searchFRC = NSFetchedResultsController(
+            fetchRequest: request,
+            managedObjectContext: context,
+            sectionNameKeyPath: "level", // 階層でセクション化！
+            cacheName: nil
+        )
         searchFRC.delegate = self
     }
     
@@ -98,6 +104,10 @@ final class FolderViewController: UIViewController, UITableViewDataSource, UITab
     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
         if searchText.isEmpty {
             isSearching = false
+            try? normalFRC.performFetch()
+            if let objects = normalFRC.fetchedObjects {
+                flatData = flattenFolders(objects.filter { $0.parent == nil })
+            }
         } else {
             isSearching = true
             let predicate = NSPredicate(format: "folderName CONTAINS[cd] %@", searchText)
@@ -120,33 +130,45 @@ final class FolderViewController: UIViewController, UITableViewDataSource, UITab
     // MARK: - TableView
     
     func numberOfSections(in tableView: UITableView) -> Int {
-        return 1
+        if isSearching {
+            return searchFRC.sections?.count ?? 0
+        } else {
+            return 1
+        }
     }
-    
+
+    func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+        if isSearching {
+            if let sectionInfo = searchFRC.sections?[section],
+               let levelInt = Int(sectionInfo.name) {
+                return "第\(levelInt + 1)階層"
+            }
+        }
+        return nil
+    }
+
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         if isSearching {
-            return searchFRC.fetchedObjects?.count ?? 0
+            return searchFRC.sections?[section].numberOfObjects ?? 0
         } else {
             return flatData.count
         }
     }
-    
+
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: "cell")
+        let cell = UITableViewCell(style: .default, reuseIdentifier: "cell")
         
         if isSearching {
-            if let folder = searchFRC.fetchedObjects?[indexPath.row] {
-                cell.textLabel?.text = folder.folderName
-            }
+            let folder = searchFRC.object(at: indexPath)
+            cell.textLabel?.text = folder.folderName
+            cell.indentationLevel = Int(folder.level)
         } else {
             let node = flatData[indexPath.row]
             cell.textLabel?.text = String(repeating: "　", count: Int(node.level)) + (node.folder.folderName ?? "")
-            cell.accessoryType = node.folder.isExpanded ? .detailDisclosureButton : .none
         }
-        
         return cell
     }
-    
+        
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         guard !isSearching else { return } // 検索中は開閉なし
         
