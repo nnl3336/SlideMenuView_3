@@ -13,17 +13,27 @@ import UIKit
 import UIKit
 import CoreData
 
+import UIKit
+import CoreData
+
 class FolderViewController: UIViewController, UITableViewDataSource, UITableViewDelegate, NSFetchedResultsControllerDelegate, UISearchBarDelegate {
 
     var tableView: UITableView!
     var searchBar: UISearchBar!
-
     var context: NSManagedObjectContext!
+
     var fetchedResultsController: NSFetchedResultsController<Folder>!
 
+    // 通常時: 展開ツリー
+    var flattenedFolders: [Folder] = []
+
+    // 検索時: 階層ごとの分類
     var groupedByLevel: [Int64: [Folder]] = [:]
     var sortedLevels: [Int64] = []
+
+    // 状態管理
     var expandedFolders: Set<Folder> = []
+    var isSearching: Bool = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -46,10 +56,11 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         view.addSubview(tableView)
     }
 
+    // MARK: - Fetch
+
     private func fetchFolders(predicate: NSPredicate? = nil) {
         let request: NSFetchRequest<Folder> = Folder.fetchRequest()
-        request.sortDescriptors = [NSSortDescriptor(key: "level", ascending: true),
-                                   NSSortDescriptor(key: "sortIndex", ascending: true)]
+        request.sortDescriptors = [NSSortDescriptor(key: "sortIndex", ascending: true)]
 
         if let predicate = predicate {
             request.predicate = predicate
@@ -63,52 +74,101 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
         do {
             try fetchedResultsController.performFetch()
-            groupFoldersByLevel()
+
+            if isSearching {
+                groupFoldersByLevel()
+            } else {
+                buildFlattenedFolders()
+            }
+
+            tableView.reloadData()
         } catch {
             print("Fetch failed: \(error)")
         }
     }
 
+    // MARK: - 検索時: 階層ごと表示
+
     private func groupFoldersByLevel() {
         guard let folders = fetchedResultsController.fetchedObjects else { return }
-
         groupedByLevel = Dictionary(grouping: folders, by: { Int64($0.level) })
         sortedLevels = groupedByLevel.keys.sorted()
-        tableView.reloadData()
+    }
+
+    // MARK: - 通常時: 展開構造
+
+    private func buildFlattenedFolders() {
+        guard let allFolders = fetchedResultsController.fetchedObjects else { return }
+        let rootFolders = allFolders.filter { $0.parent == nil }
+        flattenedFolders = flatten(nodes: rootFolders)
+    }
+
+    private func flatten(nodes: [Folder]) -> [Folder] {
+        var result: [Folder] = []
+        for node in nodes.sorted(by: { $0.sortIndex < $1.sortIndex }) {
+            result.append(node)
+            if expandedFolders.contains(node),
+               let children = node.children as? Set<Folder> {
+                let sortedChildren = children.sorted(by: { $0.sortIndex < $1.sortIndex })
+                result.append(contentsOf: flatten(nodes: sortedChildren))
+            }
+        }
+        return result
     }
 
     // MARK: - UITableViewDataSource
 
     func numberOfSections(in tableView: UITableView) -> Int {
-        return sortedLevels.count
+        return isSearching ? sortedLevels.count : 1
     }
 
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        let level = sortedLevels[section]
-        return "第\(level + 1)階層"
+        if isSearching {
+            let level = sortedLevels[section]
+            return "第\(level + 1)階層"
+        } else {
+            return nil
+        }
     }
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        let level = sortedLevels[section]
-        return groupedByLevel[level]?.count ?? 0
+        if isSearching {
+            let level = sortedLevels[section]
+            return groupedByLevel[level]?.count ?? 0
+        } else {
+            return flattenedFolders.count
+        }
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
 
-        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
-        let level = sortedLevels[indexPath.section]
-        if let folder = groupedByLevel[level]?[indexPath.row] {
-            cell.textLabel?.text = folder.folderName ?? "(no name)"
+        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+
+        if isSearching {
+            let level = sortedLevels[indexPath.section]
+            if let folder = groupedByLevel[level]?[indexPath.row] {
+                cell.textLabel?.text = folder.folderName
+            }
+        } else {
+            let folder = flattenedFolders[indexPath.row]
+            cell.textLabel?.text = folder.folderName
+
+            let indent = Int(folder.level) * 20
+            cell.indentationLevel = Int(folder.level)
+            cell.indentationWidth = 20
             cell.accessoryType = expandedFolders.contains(folder) ? .detailDisclosureButton : .disclosureIndicator
+            cell.separatorInset = UIEdgeInsets(top: 0, left: CGFloat(indent), bottom: 0, right: 0)
         }
+
         return cell
     }
 
     // MARK: - UITableViewDelegate
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        let level = sortedLevels[indexPath.section]
-        guard let folder = groupedByLevel[level]?[indexPath.row] else { return }
+        guard !isSearching else { return } // 検索時は開閉しない
+
+        let folder = flattenedFolders[indexPath.row]
 
         if expandedFolders.contains(folder) {
             expandedFolders.remove(folder)
@@ -116,15 +176,18 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             expandedFolders.insert(folder)
         }
 
-        tableView.reloadRows(at: [indexPath], with: .automatic)
+        buildFlattenedFolders()
+        tableView.reloadData()
     }
 
     // MARK: - UISearchBarDelegate
 
     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
         if searchText.isEmpty {
+            isSearching = false
             fetchFolders()
         } else {
+            isSearching = true
             let predicate = NSPredicate(format: "folderName CONTAINS[c] %@", searchText)
             fetchFolders(predicate: predicate)
         }
