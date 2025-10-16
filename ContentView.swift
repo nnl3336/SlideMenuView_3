@@ -10,7 +10,6 @@ import CoreData
 import UIKit
 
 // MARK: - エディット
-
 class FolderViewController: UIViewController, UITableViewDataSource, UITableViewDelegate, NSFetchedResultsControllerDelegate, UISearchBarDelegate {
     
     //***
@@ -22,7 +21,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         
         let savedSortRaw = UserDefaults.standard.integer(forKey: "currentSort")
         currentSort = SortType(rawValue: savedSortRaw) ?? .createdAt
-
+        
         ascending = UserDefaults.standard.bool(forKey: "ascending")
         
         tableView.translatesAutoresizingMaskIntoConstraints = false
@@ -38,8 +37,15 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         setupFRC()
         
         navigationItem.rightBarButtonItem = UIBarButtonItem(
-         barButtonSystemItem: .add, target: self, action: #selector(addFolder)
-         )
+            barButtonSystemItem: .add, target: self, action: #selector(addFolder)
+        )
+        setupNormalFRC()//通常モード用 NSFetchedResultsController
+        setupSearchFRC()//検索モード用 NSFetchedResultsController
+        
+        // 初期状態は通常モード
+        activeFRC = normalFRC
+        
+        //
         
         if let objects = fetchedResultsController.fetchedObjects {
             flatData = flattenFolders(objects.filter { $0.parent == nil })
@@ -60,9 +66,75 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     
     //***
     
+    // MARK: - 検索
+    
+    //🔄 通常・検索切り替え（UISearchBarDelegate）
+    func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
+        if searchText.isEmpty {
+            // 通常モードに戻す
+            activeFRC = normalFRC
+            tableView.reloadData()
+            return
+        }
+        
+        // 検索モードに切替
+        searchFRC.fetchRequest.predicate = NSPredicate(format: "folderName CONTAINS[cd] %@", searchText)
+        do {
+            try searchFRC.performFetch()
+            activeFRC = searchFRC
+            tableView.reloadData()
+        } catch {
+            print("Search failed: \(error)")
+        }
+    }
+    
+    // MARK: - frc
+    func setupSearchFRC() {
+        let fetchRequest: NSFetchRequest<Folder> = Folder.fetchRequest()
+        fetchRequest.sortDescriptors = [
+            NSSortDescriptor(key: "level", ascending: true),
+            NSSortDescriptor(key: "folderName", ascending: true)
+        ]
+        
+        // 初期状態はpredicateなし（あとで検索バー入力で更新）
+        searchFRC = NSFetchedResultsController(
+            fetchRequest: fetchRequest,
+            managedObjectContext: context,
+            sectionNameKeyPath: "level", // 階層ごとにセクション分割
+            cacheName: nil
+        )
+        searchFRC.delegate = self
+        
+        do {
+            try normalFRC.performFetch()
+        } catch {
+            print("Normal FRC fetch failed: \(error)")
+        }
+    }
+    
+    func setupNormalFRC() {
+        let request: NSFetchRequest<Folder> = Folder.fetchRequest()
+        request.sortDescriptors = [NSSortDescriptor(key: "folderMadeTime", ascending: true)]
+        
+        normalFRC = NSFetchedResultsController(
+            fetchRequest: request,
+            managedObjectContext: context,
+            sectionNameKeyPath: nil,
+            cacheName: nil
+        )
+        normalFRC.delegate = self
+        
+        do {
+            try normalFRC.performFetch()
+        } catch {
+            print("Normal FRC fetch failed: \(error)")
+        }
+    }
+    
+    
     // MARK: - 階層Folder
     
-    // MARK: - セクションヘッダー
+    //セクションヘッダー
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         if isSearching {
             let level = sortedLevels[section]
@@ -72,16 +144,16 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         }
     }
     
-    // MARK: - UITableViewDelegate コンテキストメニュー
+    //UITableViewDelegate コンテキストメニュー
     func tableView(_ tableView: UITableView,
                    contextMenuConfigurationForRowAt indexPath: IndexPath,
                    point: CGPoint) -> UIContextMenuConfiguration? {
-
+        
         // セクション1 (coreData) のみ対象
         guard indexPath.section == 1 else { return nil }
-
+        
         let folder = flatData[indexPath.row].folder
-
+        
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in
             let addChild = UIAction(title: "子フォルダ追加", image: UIImage(systemName: "folder.badge.plus")) { [weak self] _ in
                 self?.addChildFolder(to: folder)
@@ -92,25 +164,25 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     private func addChildFolder(to parentFolder: Folder) {
         let alert = UIAlertController(title: "子フォルダ", message: "名前を入力してください", preferredStyle: .alert)
         alert.addTextField { $0.placeholder = "フォルダ名" }
-
+        
         alert.addAction(UIAlertAction(title: "キャンセル", style: .cancel))
         alert.addAction(UIAlertAction(title: "追加", style: .default, handler: { [weak self] _ in
             guard let self = self else { return }
             let name = alert.textFields?.first?.text ?? "無題"
-
+            
             let newFolder = Folder(context: self.context)
             newFolder.folderName = name
-
+            
             // 子フォルダの sortIndex 計算
             let children = (parentFolder.children as? Set<Folder>) ?? []
             let maxSortIndex = children.map { $0.sortIndex }.max() ?? -1
             newFolder.sortIndex = maxSortIndex + 1
             newFolder.parent = parentFolder
-
+            
             do { try self.context.save() } catch { print(error) }
             // NSFetchedResultsController が自動で controllerDidChangeContent を呼ぶ
         }))
-
+        
         present(alert, animated: true)
     }
     
@@ -149,7 +221,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         
         tableView.endUpdates()
     }
-
+    
     
     private func flatten(folders: [Folder], level: Int = 0) -> [(folder: Folder, level: Int)] {
         var result: [(folder: Folder, level: Int)] = []
@@ -162,8 +234,8 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         }
         return result
     }
-    // MARK: - Step 1: モデル定義　基本プロパティ
     
+    // MARK: - Step 1: モデル定義　基本プロパティ
     class FolderNode: Equatable {
         let id: UUID
         let name: String
@@ -183,15 +255,11 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             return lhs.id == rhs.id
         }
     }
-
-    
     enum SectionType {
         case normalBefore
         case coreData
         case normalAfter
     }
-    
-    
     var rootNodes: [FolderNode] = []
     var groupedCoreData: [Int: [FolderNode]] = [:]
     var sortedLevels: [Int] = []
@@ -200,7 +268,6 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     
     let normalBefore = ["Apple", "Orange"]
     let normalAfter = ["Banana"]
-    
     
     
     // MARK: - Step 2: ダミーデータ
@@ -224,18 +291,42 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         return grouped
     }
     
-    func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
-        if searchText.isEmpty {
-            isSearching = false
-            groupedCoreData = [:]
-        } else {
-            isSearching = true
-            groupedCoreData = search(nodes: rootNodes, query: searchText)
-            sortedLevels = groupedCoreData.keys.sorted()
-        }
-        tableView.reloadData()
+    func controllerWillChangeContent(_ controller: NSFetchedResultsController<NSFetchRequestResult>) {
+        tableView.beginUpdates()
     }
-
+    
+    func controller(_ controller: NSFetchedResultsController<NSFetchRequestResult>,
+                    didChange anObject: Any,
+                    at indexPath: IndexPath?,
+                    for type: NSFetchedResultsChangeType,
+                    newIndexPath: IndexPath?) {
+        switch type {
+        case .insert:
+            if let newIndexPath = newIndexPath {
+                tableView.insertRows(at: [newIndexPath], with: .automatic)
+            }
+        case .delete:
+            if let indexPath = indexPath {
+                tableView.deleteRows(at: [indexPath], with: .automatic)
+            }
+        case .update:
+            if let indexPath = indexPath {
+                let folder = controller.object(at: indexPath) as! Folder
+                if let cell = tableView.cellForRow(at: indexPath) {
+                    cell.textLabel?.text = folder.folderName
+                }
+            }
+        case .move:
+            if let indexPath = indexPath, let newIndexPath = newIndexPath {
+                tableView.moveRow(at: indexPath, to: newIndexPath)
+            }
+        @unknown default:
+            break
+        }
+    }
+    
+    
+    
     
     
     // MARK: - Step 5: TableViewController
@@ -245,7 +336,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     @objc private func addFolder() {
         let alert = UIAlertController(title: "新しいフォルダ", message: "名前を入力してください", preferredStyle: .alert)
         alert.addTextField { $0.placeholder = "フォルダ名" }
-
+        
         alert.addAction(UIAlertAction(title: "キャンセル", style: .cancel))
         alert.addAction(UIAlertAction(title: "追加", style: .default, handler: { [weak self] _ in
             guard let self = self else { return }
@@ -253,20 +344,20 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             let newFolder = Folder(context: self.context)
             newFolder.folderName = name
             newFolder.sortIndex = (self.flatData.last?.folder.sortIndex ?? -1) + 1
-
+            
             do { try self.context.save() } catch { print(error) }
             // FRC が自動で controllerDidChangeContent を呼ぶ
         }))
-
+        
         present(alert, animated: true)
     }
-
+    
     // MARK: - Setup TableView
     private func setupTableView() {
         tableView.translatesAutoresizingMaskIntoConstraints = false
         tableView.register(CustomCell.self, forCellReuseIdentifier: CustomCell.reuseID)
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "Cell")
-
+        
         tableView.delegate = self
         tableView.dataSource = self
         tableView.tableFooterView = UIView()
@@ -303,31 +394,31 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         return UIMenu(title: "並び替え", children: [
             UIAction(title: "作成日", image: UIImage(systemName: "calendar"),
                      state: currentSort == .createdAt ? .on : .off) { [weak self] _ in
-                guard let self = self else { return }
-                self.currentSort = .createdAt
-                self.setupFRC()
-                // 編集モードを解除
-                self.tableView.setEditing(false, animated: true)
-                if let button = self.sortButton { button.menu = self.makeSortMenu() }
-            },
-
+                         guard let self = self else { return }
+                         self.currentSort = .createdAt
+                         self.setupFRC()
+                         // 編集モードを解除
+                         self.tableView.setEditing(false, animated: true)
+                         if let button = self.sortButton { button.menu = self.makeSortMenu() }
+                     },
+            
             UIAction(title: "名前", image: UIImage(systemName: "textformat"),
                      state: currentSort == .title ? .on : .off) { [weak self] _ in
-                guard let self = self else { return }
-                self.currentSort = .title
-                self.setupFRC()
-                self.tableView.setEditing(false, animated: true)
-                if let button = self.sortButton { button.menu = self.makeSortMenu() }
-            },
-
+                         guard let self = self else { return }
+                         self.currentSort = .title
+                         self.setupFRC()
+                         self.tableView.setEditing(false, animated: true)
+                         if let button = self.sortButton { button.menu = self.makeSortMenu() }
+                     },
+            
             UIAction(title: "追加日", image: UIImage(systemName: "clock"),
                      state: currentSort == .currentDate ? .on : .off) { [weak self] _ in
-                guard let self = self else { return }
-                self.currentSort = .currentDate
-                self.setupFRC()
-                self.tableView.setEditing(false, animated: true)
-                if let button = self.sortButton { button.menu = self.makeSortMenu() }
-            },
+                         guard let self = self else { return }
+                         self.currentSort = .currentDate
+                         self.setupFRC()
+                         self.tableView.setEditing(false, animated: true)
+                         if let button = self.sortButton { button.menu = self.makeSortMenu() }
+                     },
             // 1. UIAction 内で編集モードに切り替え
             UIAction(title: "順番", image: UIImage(systemName: "list.number"),
                      state: currentSort == .order ? .on : .off) { [weak self] _ in
@@ -455,7 +546,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         case .currentDate:
             request.sortDescriptors = [NSSortDescriptor(key: "currentDate", ascending: ascending)]
         }
-
+        
         fetchedResultsController = NSFetchedResultsController(
             fetchRequest: request,
             managedObjectContext: context,
@@ -463,7 +554,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             cacheName: nil
         )
         fetchedResultsController.delegate = self
-
+        
         do {
             try fetchedResultsController.performFetch()
             // flattenFolders のソート関数も currentSort/ascending に合わせる
@@ -475,165 +566,102 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             print("❌ Fetch error: \(error)")
         }
     }
-
-    // MARK: - UITableView DataSource　データソース
-    // MARK: - セル個数
-    func numberOfSections(in tableView: UITableView) -> Int {
-        if isSearching {
-            sortedLevels = groupedCoreData.keys.sorted() // ←ここでレベル順にソート
-            return sortedLevels.count
-        } else {
-            return 1 // 通常時は1セクション
-        }
-    }
-
-
-
     
-    // MARK: - セル表示
+    // MARK: - UITableView DataSource　データソース
     
     // ContentView または ViewController の先頭で
-    @State var coreDataResults: [FolderNode] = []
-
-
-    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+    /*@State*/ var coreDataResults: [FolderNode] = []
+    
+    //
+    func numberOfSections(in tableView: UITableView) -> Int {
         if isSearching {
-            let level = sortedLevels[section]
-            return groupedCoreData[level]?.count ?? 0
+            return searchFRC.sections?.count ?? 0
         } else {
-            return normalBefore.count + flatData.count + normalAfter.count
+            return 1
         }
     }
-
-
+    
+    //セル表示
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        if isSearching {
+            return searchFRC.sections?[section].numberOfObjects ?? 0
+        } else {
+            return flatData.count
+        }
+    }
     
     // MARK: - UITableViewDataSource　データソース
-
+    
+    // 通常用
+    var normalFRC: NSFetchedResultsController<Folder>!
+    
+    // 検索用
+    var searchFRC: NSFetchedResultsController<Folder>!
+    
+    // 現在表示しているFRC（通常 or 検索）
+    var activeFRC: NSFetchedResultsController<Folder>!
+    
     // まず expandedState を ObjectIdentifier に変更
     private var expandedState: [ObjectIdentifier: Bool] = [:]
     
-    func numberOfSections(in tableView: UITableView) -> Int {
-        return isSearching ? sortedLevels.count : 1
-    }
-
-    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        guard isSearching else { return flatData.count } // 通常モードは仮
-        let level = sortedLevels[section]
-        return groupedCoreData[level]?.count ?? 0
-    }
-
-    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        guard isSearching else {
-            // 通常モードはまだ無視
-            return UITableViewCell()
-        }
-
-        let level = sortedLevels[indexPath.section]
-        guard let folderNode = groupedCoreData[level]?[indexPath.row] else {
-            return UITableViewCell()
-        }
-
-        let cell = tableView.dequeueReusableCell(withIdentifier: CustomCell.reuseID, for: indexPath) as! CustomCell
-        cell.configureCell(
-            name: folderNode.name,
-            level: folderNode.level,
-            isExpanded: false, // 検索時は展開なし
-            hasChildren: !folderNode.children.isEmpty,
-            systemName: "folder"
-        )
-        return cell
-    }
-
-
     // MARK: - セル表示
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         if isSearching {
-            let level = sortedLevels[indexPath.section]
-            let folderNode = groupedCoreData[level]?[indexPath.row]
             let cell = tableView.dequeueReusableCell(withIdentifier: CustomCell.reuseID, for: indexPath) as! CustomCell
-            if let folderNode = folderNode {
-                cell.configureCell(
-                    name: folderNode.name,
-                    level: folderNode.level,
-                    isExpanded: false,
-                    hasChildren: !folderNode.children.isEmpty,
-                    systemName: "folder"
-                )
-            }
+            let folder = searchFRC.object(at: indexPath)
+            cell.configureCell(
+                name: folder.folderName ?? "無題",
+                level: Int(folder.level),
+                isExpanded: false,
+                hasChildren: (folder.children?.count ?? 0) > 0,
+                systemName: "folder"
+            )
             return cell
         } else {
-            switch indexPath.section {
-            case 0:
-                let cell = tableView.dequeueReusableCell(withIdentifier: "Cell", for: indexPath)
-                cell.textLabel?.text = normalBefore[indexPath.row]
-                return cell
-            case 1:
-                let item = flatData[indexPath.row]  // タプル (folder, level)
-                let folder = item.folder
-                let level = item.level
-                let isExpanded = expandedState[ObjectIdentifier(folder)] ?? false
+            // 通常モードは以前の flatData 展開を使う
+            let item = flatData[indexPath.row]
+            let folder = item.folder
+            let level = item.level
+            let isExpanded = expandedState[ObjectIdentifier(folder)] ?? false
 
-                let cell = tableView.dequeueReusableCell(withIdentifier: CustomCell.reuseID, for: indexPath) as! CustomCell
-                cell.configureCell(
-                    name: folder.folderName ?? "無題",
-                    level: level,
-                    isExpanded: isExpanded,
-                    hasChildren: (folder.children?.count ?? 0) > 0,
-                    systemName: "folder"
-                )
-
-                // 矢印タップ用コールバック
-                cell.chevronTapped = { [weak self, weak cell] in
-                    guard let self = self, let cell = cell else { return }
-                    
-                    let isExpanded = self.expandedState[ObjectIdentifier(folder)] ?? false
-                    
-                    // 1. toggleFolderでflatDataを更新
-                    self.toggleFolder(folder)
-                    
-                    // 2. chevron回転
-                    cell.rotateChevron(expanded: !isExpanded)
-                }
-
-                return cell
-
-            case 2:
-                let cell = tableView.dequeueReusableCell(withIdentifier: "Cell", for: indexPath)
-                cell.textLabel?.text = normalAfter[indexPath.row]
-                return cell
-            default:
-                fatalError("Unknown section")
-            }
+            let cell = tableView.dequeueReusableCell(withIdentifier: CustomCell.reuseID, for: indexPath) as! CustomCell
+            cell.configureCell(
+                name: folder.folderName ?? "無題",
+                level: level,
+                isExpanded: isExpanded,
+                hasChildren: (folder.children?.count ?? 0) > 0,
+                systemName: "folder"
+            )
+            return cell
         }
     }
-    
     // MARK: - セルタップ
     func toggleFolder(_ folder: Folder) {
         guard let startIndex = flatData.firstIndex(where: { $0.folder == folder }) else { return }
         let parentLevel = flatData[startIndex].level
         let isExpanded = expandedState[ObjectIdentifier(folder)] ?? false
-
+        
         tableView.beginUpdates()
-
+        
         if isExpanded {
             // 折りたたむ
             var endIndex = startIndex + 1
             while endIndex < flatData.count && flatData[endIndex].level > parentLevel {
                 endIndex += 1
             }
-
+            
             if endIndex > startIndex + 1 {
                 flatData.removeSubrange((startIndex + 1)..<endIndex)
                 let indexPaths = (startIndex + 1..<endIndex).map { IndexPath(row: $0, section: 1) }
                 tableView.deleteRows(at: indexPaths, with: .fade)
             }
-
+            
             expandedState[ObjectIdentifier(folder)] = false
         } else {
             // 展開
             let children = (folder.children?.allObjects as? [Folder])?
                 .sorted(by: { $0.sortIndex < $1.sortIndex }) ?? []
-
+            
             var insertItems: [(folder: Folder, level: Int)] = []
             for child in children {
                 insertItems.append((child, parentLevel + 1))
@@ -642,21 +670,21 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                     insertItems.append(contentsOf: getExpandedDescendants(of: child, level: parentLevel + 2))
                 }
             }
-
+            
             flatData.insert(contentsOf: insertItems, at: startIndex + 1)
             let indexPaths = (0..<insertItems.count).map { IndexPath(row: startIndex + 1 + $0, section: 1) }
             tableView.insertRows(at: indexPaths, with: .fade)
-
+            
             expandedState[ObjectIdentifier(folder)] = true
         }
-
+        
         tableView.endUpdates()
     }
     // 再帰的に開いている子孫を取得
     private func getExpandedDescendants(of folder: Folder, level: Int) -> [(folder: Folder, level: Int)] {
         var result: [(folder: Folder, level: Int)] = []
         let children = (folder.children?.allObjects as? [Folder])?.sorted(by: { $0.sortIndex < $1.sortIndex }) ?? []
-
+        
         for child in children {
             result.append((child, level))
             if expandedState[ObjectIdentifier(child)] == true {
@@ -750,33 +778,33 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             return .delete
         }
     }
-
+    
     // 並び替え可能かどうか
     func tableView(_ tableView: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool {
         // section 1 のみ並び替え可能
         return currentSort == .order && indexPath.section == 1
     }
-
+    
     // 並び替え後の処理
     var isMovingRow = false
-
+    
     func tableView(_ tableView: UITableView, moveRowAt sourceIndexPath: IndexPath, to destinationIndexPath: IndexPath) {
         isMovingRow = true
-
+        
         let movedItem = flatData.remove(at: sourceIndexPath.row)
         flatData.insert(movedItem, at: destinationIndexPath.row)
-
+        
         for (index, item) in flatData.enumerated() {
             item.folder.sortIndex = Int64(index)
         }
-
+        
         try? context.save()
         isMovingRow = false
     }
     
     func controllerDidChangeContent(_ controller: NSFetchedResultsController<NSFetchRequestResult>) {
         if suppressFRCUpdates || isMovingRow { return } // ←移動中は無視
-
+        
         guard let folders = controller.fetchedObjects as? [Folder] else { return }
         flatData = flattenFolders(folders.filter { $0.parent == nil })
         tableView.reloadData()
@@ -786,49 +814,49 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     
     // MARK: - Toggle Folder
     /*func toggleFolder(for folder: FolderNode) {
-        guard let index = flatData.firstIndex(of: folder) else { return }
-        
-        let isExpanded = expandedState[folder.id] ?? false
-        expandedState[folder.id] = !isExpanded
-        
-        tableView.beginUpdates()
-        
-        if isExpanded {
-            // 折りたたみ → 子を削除
-            let childrenToRemove = getAllChildren(of: folder)
-            let startIndex = index + 1
-            flatData.removeSubrange(startIndex..<(startIndex + childrenToRemove.count))
-            let indexPaths = childrenToRemove.enumerated().map { IndexPath(row: startIndex + $0.offset, section: 1) }
-            tableView.deleteRows(at: indexPaths, with: .fade)
-        } else {
-            // 展開 → 子を挿入
-            let childrenToInsert = getDirectChildren(of: folder)
-            let startIndex = index + 1
-            flatData.insert(contentsOf: childrenToInsert, at: startIndex)
-            let indexPaths = childrenToInsert.enumerated().map { IndexPath(row: startIndex + $0.offset, section: 1) }
-            tableView.insertRows(at: indexPaths, with: .fade)
-        }
-        
-        tableView.endUpdates()
-    }*/
-
+     guard let index = flatData.firstIndex(of: folder) else { return }
+     
+     let isExpanded = expandedState[folder.id] ?? false
+     expandedState[folder.id] = !isExpanded
+     
+     tableView.beginUpdates()
+     
+     if isExpanded {
+     // 折りたたみ → 子を削除
+     let childrenToRemove = getAllChildren(of: folder)
+     let startIndex = index + 1
+     flatData.removeSubrange(startIndex..<(startIndex + childrenToRemove.count))
+     let indexPaths = childrenToRemove.enumerated().map { IndexPath(row: startIndex + $0.offset, section: 1) }
+     tableView.deleteRows(at: indexPaths, with: .fade)
+     } else {
+     // 展開 → 子を挿入
+     let childrenToInsert = getDirectChildren(of: folder)
+     let startIndex = index + 1
+     flatData.insert(contentsOf: childrenToInsert, at: startIndex)
+     let indexPaths = childrenToInsert.enumerated().map { IndexPath(row: startIndex + $0.offset, section: 1) }
+     tableView.insertRows(at: indexPaths, with: .fade)
+     }
+     
+     tableView.endUpdates()
+     }*/
+    
     func getDirectChildren(of folder: FolderNode) -> [FolderNode] {
         return folder.children ?? []
     }
-
+    
     func getAllChildren(of folder: FolderNode) -> [FolderNode] {
         var result: [FolderNode] = []
-
+        
         func traverse(node: FolderNode) {
             let children = node.children  // Optionalではないのでそのまま使える
             result.append(contentsOf: children)
             children.forEach { traverse(node: $0) }
         }
-
+        
         traverse(node: folder)
         return result
     }
-
+    
     private func visibleChildrenForExpand(of folder: Folder) -> [Folder] {
         let children = (folder.children?.allObjects as? [Folder])?.sorted { $0.sortIndex < $1.sortIndex } ?? []
         var result: [Folder] = []
@@ -860,7 +888,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     var context: NSManagedObjectContext!
     private var fetchedResultsController: NSFetchedResultsController<Folder>!
     /*private var flatData: [Folder] = []*/private var flatData: [(folder: Folder, level: Int)] = []
-//    private var expandedState: [UUID: Bool] = [:]
+    //    private var expandedState: [UUID: Bool] = [:]
     
     private let tableView = UITableView()
     private var searchBar = UISearchBar()

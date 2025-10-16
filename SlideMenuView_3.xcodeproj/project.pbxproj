@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		186CFFAF2EA0E07400A76B28 /* Folder+CoreDataClass.swift in Sources */ = {isa = PBXBuildFile; fileRef = 186CFFAD2EA0E07400A76B28 /* Folder+CoreDataClass.swift */; };
+		186CFFB02EA0E07400A76B28 /* Folder+CoreDataProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = 186CFFAE2EA0E07400A76B28 /* Folder+CoreDataProperties.swift */; };
 		1893DAF42E965D10006D818B /* SwiftUIView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1893DAF32E965D10006D818B /* SwiftUIView.swift */; };
 		189A30022E8FB860003AB3B1 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 189A2FFA2E8FB860003AB3B1 /* ContentView.swift */; };
 		189A300D2E8FCE5C003AB3B1 /* extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 189A300C2E8FCE5C003AB3B1 /* extension.swift */; };
@@ -31,6 +33,8 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		186CFFAD2EA0E07400A76B28 /* Folder+CoreDataClass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Folder+CoreDataClass.swift"; sourceTree = "<group>"; };
+		186CFFAE2EA0E07400A76B28 /* Folder+CoreDataProperties.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Folder+CoreDataProperties.swift"; sourceTree = "<group>"; };
 		1893DAF32E965D10006D818B /* SwiftUIView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftUIView.swift; sourceTree = "<group>"; };
 		189A2FB32E8F8E90003AB3B1 /* SlideMenuView_3.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SlideMenuView_3.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		189A2FC92E8F8E92003AB3B1 /* SlideMenuView_3Tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SlideMenuView_3Tests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -86,6 +90,8 @@
 		189A2FAA2E8F8E90003AB3B1 = {
 			isa = PBXGroup;
 			children = (
+				186CFFAD2EA0E07400A76B28 /* Folder+CoreDataClass.swift */,
+				186CFFAE2EA0E07400A76B28 /* Folder+CoreDataProperties.swift */,
 				189A2FFA2E8FB860003AB3B1 /* ContentView.swift */,
 				189A300E2E8FD173003AB3B1 /* CustomCell.swift */,
 				189A300C2E8FCE5C003AB3B1 /* extension.swift */,
@@ -254,6 +260,8 @@
 				189A30022E8FB860003AB3B1 /* ContentView.swift in Sources */,
 				1893DAF42E965D10006D818B /* SwiftUIView.swift in Sources */,
 				189A300D2E8FCE5C003AB3B1 /* extension.swift in Sources */,
+				186CFFAF2EA0E07400A76B28 /* Folder+CoreDataClass.swift in Sources */,
+				186CFFB02EA0E07400A76B28 /* Folder+CoreDataProperties.swift in Sources */,
 				189A300F2E8FD173003AB3B1 /* CustomCell.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
