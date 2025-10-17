@@ -17,28 +17,186 @@ import UIKit
 import CoreData
 
 class FolderViewController: UIViewController, UITableViewDataSource, UITableViewDelegate, NSFetchedResultsControllerDelegate, UISearchBarDelegate {
-
-    var tableView: UITableView!
-    var searchBar: UISearchBar!
-    var context: NSManagedObjectContext!
-
-    var fetchedResultsController: NSFetchedResultsController<Folder>!
-
-    // 通常時: 展開ツリー
-    var flattenedFolders: [Folder] = []
-
-    // 検索時: 階層ごとの分類
-    var groupedByLevel: [Int64: [Folder]] = [:]
-    var sortedLevels: [Int64] = []
-
-    // 状態管理
-    var expandedFolders: Set<Folder> = []
-    var isSearching: Bool = false
+    
+    //***//イニシャライズ
+    
+    //***
 
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
         fetchFolders()
+    }
+    
+    //***
+    
+    // MARK: - 並び替え
+    private var tableView = UITableView()
+    private var searchBar = UISearchBar()
+    private var sortButton: UIButton!
+    private var headerStackView: UIStackView!
+    private let bottomToolbar = UIToolbar()
+    enum SortType: Int {
+        case order = 0
+        case title = 1
+        case createdAt = 2
+        case currentDate = 3
+    }
+    private var currentSort: SortType = .createdAt {
+        didSet { UserDefaults.standard.set(currentSort.rawValue, forKey: "currentSort") }
+    }
+    private var ascending: Bool = true {
+        didSet { UserDefaults.standard.set(ascending, forKey: "ascending") }
+    }
+    var selectedFolders: Set<Folder> = []
+    var bottomToolbarState: BottomToolbarState = .normal {
+        didSet { updateToolbar() }
+    }
+    
+    var suppressFRCUpdates = false
+    
+    enum BottomToolbarState {
+        case normal, selecting, editing
+    }
+    var isHideMode = false // ← トグルで切り替え
+    
+    ///***
+    
+    private func updateToolbar() {
+        switch bottomToolbarState {
+        case .normal:
+            bottomToolbar.isHidden = false
+            let edit = UIBarButtonItem(barButtonSystemItem: .edit, target: self, action: #selector(startEditing))
+            bottomToolbar.setItems([edit], animated: false)
+            
+        case .selecting:
+            bottomToolbar.isHidden = false
+            let cancel = UIBarButtonItem(barButtonSystemItem: .cancel, target: self, action: #selector(editCancelEdit))
+            bottomToolbar.setItems([cancel], animated: false)
+            
+        case .editing:
+            bottomToolbar.isHidden = false
+            let cancel = UIBarButtonItem(barButtonSystemItem: .cancel, target: self, action: #selector(selectCancelEdit))
+            if selectedFolders.isEmpty {
+                bottomToolbar.setItems([cancel], animated: false)
+            } else {
+                let transfer = UIBarButtonItem(title: "Transfer", style: .plain, target: self, action: #selector(transferItems))
+                bottomToolbar.setItems([cancel, UIBarButtonItem.flexibleSpace(), transfer], animated: false)
+            }
+        }
+    }
+    // MARK: - Actions
+    @objc private func startEditing() {
+        bottomToolbarState = .selecting
+        isHideMode = true
+        tableView.reloadData() // ←ここが重要
+    }
+    @objc private func editCancelEdit() {
+        isHideMode = false
+        // 選択アイテムをクリア
+        selectedFolders.removeAll()
+        
+        // bottomToolbarState を通常に戻す
+        bottomToolbarState = .normal
+        
+        // テーブルの選択状態もリセット
+        tableView.reloadData()
+        
+        // ツールバーを更新
+        updateToolbar()
+    }
+    @objc private func selectCancelEdit() {
+        // 選択アイテムをクリア
+        selectedFolders.removeAll()
+        
+        // bottomToolbarState を通常に戻す
+        bottomToolbarState = .normal
+        
+        // テーブルの選択状態もリセット
+        tableView.reloadData()
+        
+        // ツールバーを更新
+        updateToolbar()
+    }
+    @objc private func transferItems() {
+        // 選択アイテムの転送処理
+        //delegate?.didToggleBool_TransferModal(true)
+        
+        // 選択をクリア
+        selectedFolders.removeAll()
+        
+        // テーブルの選択状態もリセット
+        tableView.reloadData()
+        
+        // ツールバーを通常に戻す
+        bottomToolbarState = .normal
+        updateToolbar()
+    }
+    
+    // MARK: - 並べ替えメニュー生成
+    func makeSortMenu() -> UIMenu {
+        return UIMenu(title: "並び替え", children: [
+            UIAction(title: "作成日", image: UIImage(systemName: "calendar"),
+                     state: currentSort == .createdAt ? .on : .off) { [weak self] _ in
+                         guard let self = self else { return }
+                         self.currentSort = .createdAt
+                         self.fetchFolders()
+                         // 編集モードを解除
+                         self.tableView.setEditing(false, animated: true)
+                         if let button = self.sortButton { button.menu = self.makeSortMenu() }
+                     },
+            
+            UIAction(title: "名前", image: UIImage(systemName: "textformat"),
+                     state: currentSort == .title ? .on : .off) { [weak self] _ in
+                         guard let self = self else { return }
+                         self.currentSort = .title
+                         self.fetchFolders()
+                         self.tableView.setEditing(false, animated: true)
+                         if let button = self.sortButton { button.menu = self.makeSortMenu() }
+                     },
+            
+            UIAction(title: "追加日", image: UIImage(systemName: "clock"),
+                     state: currentSort == .currentDate ? .on : .off) { [weak self] _ in
+                         guard let self = self else { return }
+                         self.currentSort = .currentDate
+                         self.fetchFolders()
+                         self.tableView.setEditing(false, animated: true)
+                         if let button = self.sortButton { button.menu = self.makeSortMenu() }
+                     },
+            // 1. UIAction 内で編集モードに切り替え
+            UIAction(title: "順番", image: UIImage(systemName: "list.number"),
+                     state: currentSort == .order ? .on : .off) { [weak self] _ in
+                         guard let self = self else { return }
+                         self.currentSort = .order
+                         self.fetchFolders()
+                         
+                         // 編集モードに切り替え（ハンドルが出る）
+                         // 編集モードにしても削除は不可、ハンドルのみ表示
+                         tableView.setEditing(currentSort == .order, animated: true)
+                         tableView.allowsSelectionDuringEditing = true // 選択も可能
+                         // メニュー更新
+                         if let button = self.sortButton { button.menu = self.makeSortMenu() }
+                     },
+            
+            
+            UIAction(title: ascending ? "昇順 (A→Z)" : "降順 (Z→A)",
+                     image: UIImage(systemName: "arrow.up.arrow.down")) { [weak self] _ in
+                         guard let self = self else { return }
+                         self.ascending.toggle()
+                         self.fetchFolders()
+                         if let button = self.sortButton { button.menu = self.makeSortMenu() }
+                     }
+        ])
+    }
+    
+    private func setupSearchAndSortHeader() {
+        sortButton = UIButton(type: .system)
+        sortButton.setTitle("並び替え", for: .normal)
+        sortButton.setImage(UIImage(systemName: "arrow.up.arrow.down"), for: .normal)
+        sortButton.tintColor = .systemBlue
+        sortButton.showsMenuAsPrimaryAction = true
+        sortButton.contentHorizontalAlignment = .center
+        sortButton.menu = makeSortMenu() // ← ここ！
     }
 
     private func setupUI() {
@@ -48,7 +206,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         searchBar.delegate = self
         searchBar.placeholder = "フォルダ名を検索"
         navigationItem.titleView = searchBar
-
+        
         tableView = UITableView(frame: view.bounds, style: .insetGrouped)
         tableView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         tableView.dataSource = self
@@ -56,8 +214,6 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         view.addSubview(tableView)
         
         tableView.register(CustomCell.self, forCellReuseIdentifier: CustomCell.reuseID)
-
-        
     }
 
     // MARK: - Fetch
@@ -247,6 +403,22 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             fetchFolders(predicate: predicate)
         }
     }
+    //***基本プロパティ
+    
+    var context: NSManagedObjectContext!
+
+    var fetchedResultsController: NSFetchedResultsController<Folder>!
+
+    // 通常時: 展開ツリー
+    var flattenedFolders: [Folder] = []
+
+    // 検索時: 階層ごとの分類
+    var groupedByLevel: [Int64: [Folder]] = [:]
+    var sortedLevels: [Int64] = []
+
+    // 状態管理
+    var expandedFolders: Set<Folder> = []
+    var isSearching: Bool = false
 }
 
 // 階層構造管理用
