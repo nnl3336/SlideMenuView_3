@@ -26,6 +26,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         super.viewDidLoad()
         setupUI()
         fetchFolders()
+        setupSearchAndSortHeader()
     }
     
     //***
@@ -52,7 +53,6 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     var bottomToolbarState: BottomToolbarState = .normal {
         didSet { updateToolbar() }
     }
-    
     var suppressFRCUpdates = false
     
     enum BottomToolbarState {
@@ -196,17 +196,34 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         sortButton.tintColor = .systemBlue
         sortButton.showsMenuAsPrimaryAction = true
         sortButton.contentHorizontalAlignment = .center
-        sortButton.menu = makeSortMenu() // ← ここ！
+        sortButton.menu = makeSortMenu()
+        
+        searchBar = UISearchBar()
+        searchBar.delegate = self
+        searchBar.placeholder = "フォルダ名を検索"
+        
+        // StackViewでまとめる
+        headerStackView = UIStackView(arrangedSubviews: [sortButton, searchBar])
+        headerStackView.axis = .vertical
+        headerStackView.spacing = 8
+        headerStackView.alignment = .fill
+        
+        // レイアウトを確定させるためframe指定
+        headerStackView.frame = CGRect(x: 0, y: 0, width: view.frame.width, height: 100)
+        tableView.tableHeaderView = headerStackView
     }
 
+    // MARK: - UIセットアップ
     private func setupUI() {
         view.backgroundColor = .systemBackground
 
+        // MARK: - サーチバーセットアップ
         searchBar = UISearchBar()
         searchBar.delegate = self
         searchBar.placeholder = "フォルダ名を検索"
         navigationItem.titleView = searchBar
         
+        // MARK: - UITableViewセットアップ
         tableView = UITableView(frame: view.bounds, style: .insetGrouped)
         tableView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         tableView.dataSource = self
@@ -216,12 +233,20 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         tableView.register(CustomCell.self, forCellReuseIdentifier: CustomCell.reuseID)
     }
 
-    // MARK: - Fetch
-
+    // MARK: - Fetch　frc
+    
     private func fetchFolders(predicate: NSPredicate? = nil) {
         let request: NSFetchRequest<Folder> = Folder.fetchRequest()
-        request.sortDescriptors = [NSSortDescriptor(key: "sortIndex", ascending: true)]
-
+        switch currentSort {
+        case .order:
+            request.sortDescriptors = [NSSortDescriptor(key: "sortIndex", ascending: ascending)]
+        case .title:
+            request.sortDescriptors = [NSSortDescriptor(key: "folderName", ascending: ascending)]
+        case .createdAt:
+            request.sortDescriptors = [NSSortDescriptor(key: "folderMadeTime", ascending: ascending)]
+        case .currentDate:
+            request.sortDescriptors = [NSSortDescriptor(key: "currentDate", ascending: ascending)]
+        }
         if let predicate = predicate {
             request.predicate = predicate
         }
@@ -248,7 +273,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     }
 
     // MARK: - 検索時: 階層ごと表示
-
+    
     private func groupFoldersByLevel() {
         guard let folders = fetchedResultsController.fetchedObjects else { return }
         groupedByLevel = Dictionary(grouping: folders, by: { Int64($0.level) })
@@ -275,8 +300,10 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         }
         return result
     }
+    
+    //***デフォルトfunc
 
-    // MARK: - UITableViewDataSource
+    // MARK: - UITableViewDataSource　データソース
 
     func numberOfSections(in tableView: UITableView) -> Int {
         return isSearching ? sortedLevels.count : 1
@@ -374,7 +401,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     }
 
 
-    // MARK: - UITableViewDelegate
+    // MARK: - UITableViewDelegate　デリゲート
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         guard !isSearching else { return } // 検索時は開閉しない
@@ -391,7 +418,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         tableView.reloadData()
     }
 
-    // MARK: - UISearchBarDelegate
+    // MARK: - UISearchBarDelegate　デリゲート
 
     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
         if searchText.isEmpty {
