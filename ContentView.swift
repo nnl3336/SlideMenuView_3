@@ -290,16 +290,30 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
     private func flatten(nodes: [Folder]) -> [Folder] {
         var result: [Folder] = []
-        for node in nodes.sorted(by: { $0.sortIndex < $1.sortIndex }) {
+        
+        let sortedNodes: [Folder]
+        switch currentSort {
+        case .order:
+            sortedNodes = nodes.sorted { ascending ? $0.sortIndex < $1.sortIndex : $0.sortIndex > $1.sortIndex }
+        case .title:
+            sortedNodes = nodes.sorted { ascending ? ($0.folderName ?? "") < ($1.folderName ?? "") : ($0.folderName ?? "") > ($1.folderName ?? "") }
+        case .createdAt:
+            sortedNodes = nodes.sorted { ascending ? ($0.folderMadeTime ?? Date.distantPast) < ($1.folderMadeTime ?? Date.distantPast) : ($0.folderMadeTime ?? Date.distantPast) > ($1.folderMadeTime ?? Date.distantPast) }
+        case .currentDate:
+            sortedNodes = nodes.sorted { ascending ? ($0.currentDate ?? Date.distantPast) < ($1.currentDate ?? Date.distantPast) : ($0.currentDate ?? Date.distantPast) > ($1.currentDate ?? Date.distantPast) }
+        }
+        
+        for node in sortedNodes {
             result.append(node)
             if expandedFolders.contains(node),
                let children = node.children as? Set<Folder> {
-                let sortedChildren = children.sorted(by: { $0.sortIndex < $1.sortIndex })
-                result.append(contentsOf: flatten(nodes: sortedChildren))
+                result.append(contentsOf: flatten(nodes: Array(children)))
             }
         }
+        
         return result
     }
+
     
     //***デフォルトfunc
 
