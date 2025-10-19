@@ -420,7 +420,6 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             return cell
         }
     }
-
     // MARK: - toggleFolder
     func toggleFolder(_ folder: Folder) {
         guard let folderIndex = flattenedFolders.firstIndex(of: folder) else { return }
@@ -431,15 +430,18 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         tableView.beginUpdates()
 
         if isExpanded {
-            // 折りたたむ
-            var endIndex = folderIndex + 1
-            while endIndex < flattenedFolders.count,
-                  let child = flattenedFolders[endIndex] as Folder?,
-                  child.level > folder.level {
-                endIndex += 1
+            // 折りたたむ：直下の子だけ削除
+            let children = (folder.children?.allObjects as? [Folder]) ?? []
+            var indexPaths: [IndexPath] = []
+
+            for (i, child) in children.enumerated() {
+                let childIndex = folderIndex + 1 + i
+                if childIndex < flattenedFolders.count, flattenedFolders[childIndex] == child {
+                    flattenedFolders.remove(at: childIndex)
+                    indexPaths.append(IndexPath(row: startIndex + 1 + i, section: 0))
+                }
             }
-            flattenedFolders.removeSubrange((folderIndex + 1)..<endIndex)
-            let indexPaths = (startIndex + 1..<startIndex + (endIndex - folderIndex - 1 + 1)).map { IndexPath(row: $0, section: 0) }
+
             tableView.deleteRows(at: indexPaths, with: .fade)
             expandedFolders.remove(folder)
         } else {
@@ -447,6 +449,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             let children = (folder.children?.allObjects as? [Folder])?
                 .sorted(by: { $0.sortIndex < $1.sortIndex }) ?? []
             flattenedFolders.insert(contentsOf: children, at: folderIndex + 1)
+
             let indexPaths = (0..<children.count).map { IndexPath(row: startIndex + 1 + $0, section: 0) }
             tableView.insertRows(at: indexPaths, with: .fade)
             expandedFolders.insert(folder)
@@ -454,43 +457,6 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
         tableView.endUpdates()
     }
-
-    // toggleFolder を書き換え
-    func toggleFolder(_ folder: Folder) {
-        // flattenedFolders 上の index
-        guard let folderIndex = flattenedFolders.firstIndex(of: folder) else { return }
-        
-        let startRow = folderIndex + normalBefore.count // tableView 上の row
-        let isExpanded = expandedFolders.contains(folder)
-
-        tableView.beginUpdates()
-
-        if isExpanded {
-            // 折りたたむ
-            var endIndex = folderIndex + 1
-            while endIndex < flattenedFolders.count,
-                  flattenedFolders[endIndex].level > folder.level {
-                endIndex += 1
-            }
-            // flattenedFolders から削除
-            flattenedFolders.removeSubrange((folderIndex + 1)..<endIndex)
-            let indexPaths = (startRow + 1..<startRow + (endIndex - folderIndex)).map { IndexPath(row: $0, section: 0) }
-            tableView.deleteRows(at: indexPaths, with: .fade)
-            expandedFolders.remove(folder)
-        } else {
-            // 展開
-            let children = (folder.children?.allObjects as? [Folder])?
-                .sorted(by: { $0.sortIndex < $1.sortIndex }) ?? []
-            flattenedFolders.insert(contentsOf: children, at: folderIndex + 1)
-            let indexPaths = (0..<children.count).map { IndexPath(row: startRow + 1 + $0, section: 0) }
-            tableView.insertRows(at: indexPaths, with: .fade)
-            expandedFolders.insert(folder)
-        }
-
-        tableView.endUpdates()
-    }
-
-    
 
     // MARK: - UITableViewDelegate　デリゲート
 
