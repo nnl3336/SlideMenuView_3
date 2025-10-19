@@ -305,7 +305,8 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
     private func flatten(nodes: [Folder]) -> [Folder] {
         var result: [Folder] = []
-        
+
+        // 並び替え
         let sortedNodes: [Folder]
         switch currentSort {
         case .order:
@@ -317,15 +318,16 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         case .currentDate:
             sortedNodes = nodes.sorted { ascending ? ($0.currentDate ?? Date.distantPast) < ($1.currentDate ?? Date.distantPast) : ($0.currentDate ?? Date.distantPast) > ($1.currentDate ?? Date.distantPast) }
         }
-        
+
+        // 展開処理
         for node in sortedNodes {
             result.append(node)
-            if expandedFolders.contains(node),
-               let children = node.children as? Set<Folder> {
-                result.append(contentsOf: flatten(nodes: Array(children)))
+            if node.isExpanded, let children = node.children as? Set<Folder> {
+                let childrenArray = Array(children).sorted { $0.sortIndex < $1.sortIndex }
+                result.append(contentsOf: flatten(nodes: childrenArray))
             }
         }
-        
+
         return result
     }
 
@@ -428,7 +430,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                 // ←ここで矢印タップ時の動作を設定
                 cell.chevronTapped = { [weak self] in
                     guard let self = self else { return }
-                    self.toggleFolder(folder)
+                    self.toggleFolder(for: folder)
                 }
                 return cell
             }
@@ -444,54 +446,90 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     }
 
     // toggleFolder を書き換え
-    func toggleFolder(_ folder: Folder) {
-        guard let flatIndex = flattenedFolders.firstIndex(of: folder) else { return }
-        
-        let tableRowIndex = normalBefore.count + flatIndex  // ←補正
-        let isExpanded = expandedFolders.contains(folder)
+    func toggleFolder(for folder: Folder) {
+        guard let row = flattenedFolders.firstIndex(of: folder) else { return }
+        let parentLevel = getLevel(of: folder)
 
-        tableView.beginUpdates()
+        if folder.isExpanded {
+            // ----- 折りたたみ -----
+            let indicesToDelete = indicesOfDescendantsInFlatData(startingAt: row, parentLevel: parentLevel)
+            folder.isExpanded = false  // Core Data に保存
+            try? context.save()
 
-        if isExpanded {
-            // --- 折りたたむ ---
-            var endIndex = flatIndex + 1
-            while endIndex < flattenedFolders.count,
-                  flattenedFolders[endIndex].level > folder.level {
-                endIndex += 1
+            for idx in indicesToDelete.sorted(by: >) {
+                flattenedFolders.remove(at: idx)
             }
 
-            // 削除範囲（flattenedFolders と TableView の両方で同じ範囲）
-            let deleteRange = (flatIndex + 1)..<endIndex
-            flattenedFolders.removeSubrange(deleteRange)
-
-            let deleteIndexPaths = deleteRange.map {
-                IndexPath(row: normalBefore.count + $0, section: 0) // ←補正付き
-            }
-            tableView.deleteRows(at: deleteIndexPaths, with: .fade)
-            expandedFolders.remove(folder)
-
+            let indexPaths = indicesToDelete.map { IndexPath(row: $0, section: 0) }
+            tableView.beginUpdates()
+            tableView.deleteRows(at: indexPaths, with: .fade)
+            tableView.endUpdates()
         } else {
-            // --- 展開 ---
-            let children = (folder.children?.allObjects as? [Folder])?
-                .sorted(by: { $0.sortIndex < $1.sortIndex }) ?? []
-            
-            let insertPosition = flatIndex + 1
-            flattenedFolders.insert(contentsOf: children, at: insertPosition)
-
-            let insertIndexPaths = (0..<children.count).map {
-                IndexPath(row: normalBefore.count + insertPosition + $0, section: 0) // ←補正付き
+            // ----- 展開 -----
+            let itemsToInsert = visibleChildrenForExpand(of: folder)
+            guard !itemsToInsert.isEmpty else {
+                folder.isExpanded = true
+                try? context.save()
+                return
             }
-            tableView.insertRows(at: insertIndexPaths, with: .fade)
-            expandedFolders.insert(folder)
+
+            let startIndex = row + 1
+            let indexPaths = itemsToInsert.enumerated().map { IndexPath(row: startIndex + $0.offset, section: 0) }
+
+            flattenedFolders.insert(contentsOf: itemsToInsert, at: startIndex)
+            folder.isExpanded = true
+            try? context.save()
+
+            tableView.beginUpdates()
+            tableView.insertRows(at: indexPaths, with: .fade)
+            tableView.endUpdates()
         }
 
-        tableView.endUpdates()
-
-        // 親フォルダの矢印更新（補正付き）
-        if let cell = tableView.cellForRow(at: IndexPath(row: tableRowIndex, section: 0)) as? CustomCell {
-            cell.rotateChevron(expanded: !isExpanded)
+        // 親セルの矢印回転アニメーション
+        if let cell = tableView.cellForRow(at: IndexPath(row: row, section: 0)) as? CustomCell {
+            let imageName = folder.isExpanded ? "chevron.down" : "chevron.right"
+            cell.chevronIcon.image = UIImage(systemName: imageName)
+            UIView.animate(withDuration: 0.25) {
+                cell.chevronIcon.transform = folder.isExpanded ? CGAffineTransform(rotationAngle: .pi/2) : .identity
+            }
         }
     }
+    private func visibleChildrenForExpand(of folder: Folder) -> [Folder] {
+        let children = (folder.children?.allObjects as? [Folder])?
+            .sorted { $0.sortIndex < $1.sortIndex } ?? []
+        var result: [Folder] = []
+        for child in children {
+            result.append(child)
+            if child.isExpanded {   // ← CoreData を参照
+                result.append(contentsOf: visibleChildrenForExpand(of: child))
+            }
+        }
+        return result
+    }
+    private func getLevel(of folder: Folder) -> Int {
+        var level = 0
+        var current = folder.parent
+        while current != nil {
+            level += 1
+            current = current?.parent
+        }
+        return level
+    }
+    private func indicesOfDescendantsInFlatData(startingAt folderIndex: Int, parentLevel: Int) -> [Int] {
+        var indices: [Int] = []
+        var i = folderIndex + 1
+        while i < flattenedFolders.count {
+            let level = getLevel(of: flattenedFolders[i])
+            if level > parentLevel {
+                indices.append(i)
+                i += 1
+            } else {
+                break
+            }
+        }
+        return indices
+    }
+
 
     
 

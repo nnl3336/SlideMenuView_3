@@ -13,7 +13,7 @@ final class CustomCell: UITableViewCell {
     
     private let folderIcon = UIImageView()
     private let titleLabel = UILabel()
-    private let chevronIcon = UIImageView() // 右端矢印
+    let chevronIcon = UIImageView() // 右端矢印
     private var leadingConstraint: NSLayoutConstraint!
     
     var chevronTapped: (() -> Void)? // タップ時のコールバック
