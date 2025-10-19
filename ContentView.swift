@@ -453,24 +453,35 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         tableView.beginUpdates()
 
         if isExpanded {
-            // 折りたたむ：flattenedFolders からだけ削除
+            // 折りたたむ：flattenedFoldersから子フォルダを削除
             var endIndex = startIndex + 1
             while endIndex < coreDataStartIndex + flattenedFolders.count,
-                  (flattenedFolders[endIndex - coreDataStartIndex].level) > folder.level {
+                  flattenedFolders[endIndex - coreDataStartIndex].level > folder.level {
                 endIndex += 1
             }
             flattenedFolders.removeSubrange((folderIndex + 1)..<(folderIndex + 1 + (endIndex - startIndex - 1)))
-            let indexPaths = (startIndex + 1..<endIndex).map { IndexPath(row: $0, section: 0) }
-            tableView.deleteRows(at: indexPaths, with: .fade)
-
-            // 親だけ展開状態を解除
+            
+            // 親だけ展開状態を解除（子はexpandedFoldersに残す）
             expandedFolders.remove(folder)
         } else {
-            // 展開：flattenedFolders に子を挿入
+            // 展開：flattenedFoldersに子フォルダを挿入（再帰的に展開）
             let children = (folder.children?.allObjects as? [Folder])?
                 .sorted(by: { $0.sortIndex < $1.sortIndex }) ?? []
-            flattenedFolders.insert(contentsOf: children, at: folderIndex + 1)
-            let indexPaths = (0..<children.count).map { IndexPath(row: startIndex + 1 + $0, section: 0) }
+            
+            var insertList: [Folder] = []
+            func addChildrenRecursively(_ nodes: [Folder]) {
+                for node in nodes {
+                    insertList.append(node)
+                    if expandedFolders.contains(node),
+                       let childNodes = node.children as? Set<Folder> {
+                        addChildrenRecursively(Array(childNodes).sorted(by: { $0.sortIndex < $1.sortIndex }))
+                    }
+                }
+            }
+            addChildrenRecursively(children)
+            
+            flattenedFolders.insert(contentsOf: insertList, at: folderIndex + 1)
+            let indexPaths = (0..<insertList.count).map { IndexPath(row: startIndex + 1 + $0, section: 0) }
             tableView.insertRows(at: indexPaths, with: .fade)
 
             // 親を展開状態に
@@ -492,6 +503,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         tableView.endUpdates()
     }
 
+    
     
 
     // MARK: - UITableViewDelegate　デリゲート
