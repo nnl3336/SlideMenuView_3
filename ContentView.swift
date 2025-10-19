@@ -312,9 +312,11 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     }
 
     //flatten
+    // MARK: - Flatten（再帰展開）
     private func flatten(nodes: [Folder]) -> [Folder] {
         var result: [Folder] = []
 
+        // 現在のソート条件でノードを並べ替え
         let sortedNodes: [Folder]
         switch currentSort {
         case .order:
@@ -330,10 +332,11 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         for node in sortedNodes {
             result.append(node)
 
-            // UserDefaults で保存した展開状態を優先
+            // objectID を使って展開状態を確認
             let isExpanded = expandedState[node.objectID] ?? node.isExpanded
 
             if isExpanded, let children = node.children as? Set<Folder> {
+                // 子は sortIndex で固定順
                 let childrenSorted = children.sorted { $0.sortIndex < $1.sortIndex }
                 result.append(contentsOf: flatten(nodes: childrenSorted))
             }
@@ -342,63 +345,6 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         return result
     }
 
-    // MARK: - toggleFolder（展開／折りたたみ保存）
-    /*func toggleFolder(_ folder: Folder) {
-        guard let flatIndex = flattenedFolders.firstIndex(of: folder) else { return }
-
-        let tableRowIndex = normalBefore.count + flatIndex
-        let isCurrentlyExpanded = folder.isExpanded
-
-        tableView.beginUpdates()
-
-        if isCurrentlyExpanded {
-            // --- 折りたたむ ---
-            var endIndex = flatIndex + 1
-            while endIndex < flattenedFolders.count,
-                  flattenedFolders[endIndex].level > folder.level {
-                endIndex += 1
-            }
-
-            let deleteRange = (flatIndex + 1)..<endIndex
-            flattenedFolders.removeSubrange(deleteRange)
-            let deleteIndexPaths = deleteRange.map { IndexPath(row: normalBefore.count + $0, section: 0) }
-            tableView.deleteRows(at: deleteIndexPaths, with: .fade)
-
-            folder.isExpanded = false  // ←Core Data に保存
-        } else {
-            // --- 展開 ---
-            let children = (folder.children?.allObjects as? [Folder])?
-                .sorted(by: { $0.sortIndex < $1.sortIndex }) ?? []
-
-            let insertPosition = flatIndex + 1
-            flattenedFolders.insert(contentsOf: children, at: insertPosition)
-            let insertIndexPaths = (0..<children.count).map { IndexPath(row: normalBefore.count + insertPosition + $0, section: 0) }
-            tableView.insertRows(at: insertIndexPaths, with: .fade)
-
-            folder.isExpanded = true  // ←Core Data に保存
-        }
-
-        tableView.endUpdates()
-
-        // Core Data 保存
-        try? context.save()
-
-        // 親セルの矢印回転
-        if let cell = tableView.cellForRow(at: IndexPath(row: tableRowIndex, section: 0)) as? CustomCell {
-            cell.rotateChevron(expanded: !isCurrentlyExpanded)
-        }
-    }*/
-
-
-    // MARK: - 展開／折りたたみ
-    /*func toggleFolder(for folder: Folder) {
-        folder.isExpanded.toggle()
-        try? context.save()  // CoreData に保存
-        buildFlattenedFolders() // flattenedFolders を再生成
-        tableView.reloadData()  // 全体リロード
-    }*/
-
-    
     //***デフォルトfunc
 
     // MARK: - UITableViewDataSource　データソース
@@ -543,9 +489,12 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     }
 
     //
+    // MARK: - Toggle Folder（展開／折りたたみ）
     func toggleFolder(_ folder: Folder) {
         guard let flatIndex = flattenedFolders.firstIndex(of: folder) else { return }
         let tableRowIndex = normalBefore.count + flatIndex
+
+        // objectID で展開状態を確認
         let isExpanded = expandedState[folder.objectID] ?? folder.isExpanded
 
         tableView.beginUpdates()
@@ -567,7 +516,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             expandedFolders.remove(folder)
             folder.isExpanded = false
         } else {
-            // 展開：現在のソート条件で子を並べる
+            // 展開：子を現在のソート条件で並べる
             var children = (folder.children?.allObjects as? [Folder]) ?? []
 
             switch currentSort {
@@ -600,10 +549,6 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             cell.rotateChevron(expanded: !isExpanded)
         }
     }
-
-    
-    
-    
 
     // MARK: - UITableViewDelegate　デリゲート
 
