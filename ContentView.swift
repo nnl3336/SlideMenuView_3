@@ -307,17 +307,18 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     //flatten
     // MARK: - プロパティ
     private var flattenedFolders: [Folder] = []
-    // MARK: - 保存用プロパティ
+    // MARK: - 展開状態を保持するディクショナリ
     private var expandedDict: [UUID: Bool] = {
-        // UserDefaults から復元
-        let saved = UserDefaults.standard.dictionary(forKey: "expandedDict") as? [String: Bool] ?? [:]
-        var dict: [UUID: Bool] = [:]
-        for (key, value) in saved {
-            if let uuid = UUID(uuidString: key) {
-                dict[uuid] = value
+        if let saved = UserDefaults.standard.dictionary(forKey: "expandedDict") as? [String: Bool] {
+            var dict: [UUID: Bool] = [:]
+            for (key, value) in saved {
+                if let uuid = UUID(uuidString: key) {
+                    dict[uuid] = value
+                }
             }
+            return dict
         }
-        return dict
+        return [:]
     }()
 
 
@@ -333,7 +334,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         }
     }
 
-    // MARK: - flatten
+    // MARK: - フラット配列作成（再帰）
     private func flatten(nodes: [Folder]) -> [Folder] {
         var result: [Folder] = []
 
@@ -351,7 +352,8 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
         for node in sortedNodes {
             result.append(node)
-            let isExpanded = expandedDict[node.id ?? UUID()] ?? false
+            let nodeID = node.id ?? UUID()
+            let isExpanded = expandedDict[nodeID] ?? false
             if isExpanded, let children = node.children as? Set<Folder> {
                 result.append(contentsOf: flatten(nodes: Array(children)))
             }
@@ -360,22 +362,26 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         return result
     }
 
-    // MARK: - toggleFolder　// MARK: - トグル処理
-    func toggleFolder(for folder: Folder) {
+    // MARK: - フォルダ開閉
+    /*func toggleFolder(_ folder: Folder) {
         let folderID = folder.id ?? UUID()
         let isExpanded = expandedDict[folderID] ?? false
         expandedDict[folderID] = !isExpanded
 
-        // UserDefaults 保存（UUID → String）
-        let stringDict = expandedDict.reduce(into: [String: Bool]()) { $0[$1.key.uuidString] = $1.value }
-        UserDefaults.standard.set(stringDict, forKey: "expandedDict")
+        // UserDefaults に保存（String: Bool に変換）
+        var saveDict: [String: Bool] = [:]
+        for (key, value) in expandedDict {
+            saveDict[key.uuidString] = value
+        }
+        UserDefaults.standard.set(saveDict, forKey: "expandedDict")
 
-        // flattenedFolders 再構築
+        // フラット配列を再構築
         if let rootFolders = fetchedResultsController.fetchedObjects?.filter({ $0.parent == nil }) {
             flattenedFolders = flatten(nodes: rootFolders)
             tableView.reloadData()
         }
-    }
+    }*/
+
 
     
 
@@ -481,7 +487,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                 // 矢印タップで開閉
                 cell.chevronTapped = { [weak self] in
                     guard let self = self else { return }
-                    self.toggleFolder(for: folder)
+                    self.toggleFolder(folder)
                 }
                 return cell
             }
