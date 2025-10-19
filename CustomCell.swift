@@ -128,5 +128,26 @@ final class CustomCell: UITableViewCell {
 
         leadingConstraint.constant = 16 + CGFloat(level * 20)
     }
+    /*func configureCell(name: String, level: Int, isExpanded: Bool, hasChildren: Bool, systemName: String, tintColor: UIColor) {
+        titleLabel.text = name
+        self.level = level
+        self.hasChildren = hasChildren
+
+        folderIcon.image = UIImage(systemName: systemName)?.withRenderingMode(.alwaysTemplate)
+        folderIcon.tintColor = .systemBlue
+
+        chevronIcon.isHidden = !hasChildren
+        chevronIcon.tintColor = tintColor
+        let imageName = isExpanded ? "chevron.down" : "chevron.right"
+        chevronIcon.image = UIImage(systemName: imageName)?.withRenderingMode(.alwaysTemplate)
+
+        leadingConstraint.constant = 16 + CGFloat(level * 20)
+
+        // ←追加
+        chevronIcon.transform = .identity
+        if isExpanded {
+            chevronIcon.transform = CGAffineTransform(rotationAngle: .pi/2)
+        }
+    }*/
 
 }
