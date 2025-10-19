@@ -8,11 +8,11 @@
 import SwiftUI
 
 //階層Folder
-extension Collection {
+/*extension Collection {
     subscript(safe index: Index) -> Element? {
         return indices.contains(index) ? self[index] : nil
     }
-}
+}*/
 
 // CoreData Folder の UUID 拡張　階層Folder
 extension Folder {
