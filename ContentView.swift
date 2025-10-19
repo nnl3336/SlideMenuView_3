@@ -542,10 +542,9 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         }
     }
 
-    // toggleFolder を書き換え
+    //
     func toggleFolder(_ folder: Folder) {
         guard let flatIndex = flattenedFolders.firstIndex(of: folder) else { return }
-
         let tableRowIndex = normalBefore.count + flatIndex
         let isExpanded = expandedState[folder.objectID] ?? folder.isExpanded
 
@@ -558,26 +557,33 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                   flattenedFolders[endIndex].level > folder.level {
                 endIndex += 1
             }
+
             let deleteRange = (flatIndex + 1)..<endIndex
             flattenedFolders.removeSubrange(deleteRange)
-            let deleteIndexPaths = deleteRange.map {
-                IndexPath(row: normalBefore.count + $0, section: 0)
-            }
+            let deleteIndexPaths = deleteRange.map { IndexPath(row: normalBefore.count + $0, section: 0) }
             tableView.deleteRows(at: deleteIndexPaths, with: .fade)
 
             expandedState[folder.objectID] = false
             expandedFolders.remove(folder)
             folder.isExpanded = false
-
         } else {
-            // 展開
-            let children = (folder.children?.allObjects as? [Folder])?
-                .sorted(by: { $0.sortIndex < $1.sortIndex }) ?? []
+            // 展開：現在のソート条件で子を並べる
+            var children = (folder.children?.allObjects as? [Folder]) ?? []
+
+            switch currentSort {
+            case .order:
+                children.sort { ascending ? $0.sortIndex < $1.sortIndex : $0.sortIndex > $1.sortIndex }
+            case .title:
+                children.sort { ascending ? ($0.folderName ?? "") < ($1.folderName ?? "") : ($0.folderName ?? "") > ($1.folderName ?? "") }
+            case .createdAt:
+                children.sort { ascending ? ($0.folderMadeTime ?? Date.distantPast) < ($1.folderMadeTime ?? Date.distantPast) : ($0.folderMadeTime ?? Date.distantPast) > ($1.folderMadeTime ?? Date.distantPast) }
+            case .currentDate:
+                children.sort { ascending ? ($0.currentDate ?? Date.distantPast) < ($1.currentDate ?? Date.distantPast) : ($0.currentDate ?? Date.distantPast) > ($1.currentDate ?? Date.distantPast) }
+            }
+
             let insertPosition = flatIndex + 1
             flattenedFolders.insert(contentsOf: children, at: insertPosition)
-            let insertIndexPaths = (0..<children.count).map {
-                IndexPath(row: normalBefore.count + insertPosition + $0, section: 0)
-            }
+            let insertIndexPaths = (0..<children.count).map { IndexPath(row: normalBefore.count + insertPosition + $0, section: 0) }
             tableView.insertRows(at: insertIndexPaths, with: .fade)
 
             expandedState[folder.objectID] = true
@@ -587,14 +593,15 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
         tableView.endUpdates()
 
-        try? context.save() // CoreData に保存
-        saveExpandedState()  // UserDefaults に保存
+        try? context.save()
+        saveExpandedState()
 
         if let cell = tableView.cellForRow(at: IndexPath(row: tableRowIndex, section: 0)) as? CustomCell {
             cell.rotateChevron(expanded: !isExpanded)
         }
     }
 
+    
     
     
 
