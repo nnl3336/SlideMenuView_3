@@ -433,124 +433,62 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
     //セル表示
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        if isSearching {
-            // 検索モード
-            let level = sortedLevels[indexPath.section]
-            guard let folders = groupedByLevel[level], indexPath.row < folders.count else {
-                return UITableViewCell()
-            }
-            let folder = folders[indexPath.row]
+        let row = indexPath.row
+        let coreDataStartIndex = normalBefore.count
+        let coreDataEndIndex = coreDataStartIndex + flattenedFolders.count
+
+        // normalBefore
+        if row < normalBefore.count {
+            let cell = tableView.dequeueReusableCell(withIdentifier: "Cell", for: indexPath)
+            cell.textLabel?.text = normalBefore[row]
+            return cell
+        }
+
+        // CoreData
+        else if row >= coreDataStartIndex && row < coreDataEndIndex {
+            let folderIndex = row - coreDataStartIndex
+            let folder = flattenedFolders[folderIndex]
             let children = (folder.children?.allObjects as? [Folder]) ?? []
             let hasChildren = !children.isEmpty
 
             let cell = tableView.dequeueReusableCell(withIdentifier: CustomCell.reuseID, for: indexPath) as! CustomCell
+            let id = folder.id!
+            let isExpanded = expandedDict[id] ?? false
+
             cell.configureCell(
                 name: folder.folderName ?? "無題",
                 level: Int(folder.level),
-                isExpanded: false, // 検索時は展開不可にする場合
+                isExpanded: isExpanded,
                 hasChildren: hasChildren,
                 systemName: "folder",
                 tintColor: .systemBlue
             )
+
+            cell.chevronTapped = { [weak self] in
+                self?.toggleFolder(folder)
+            }
             return cell
-        } else {
-            // 通常モード
-            let row = indexPath.row
-            let coreDataStartIndex = normalBefore.count
-            let coreDataEndIndex = coreDataStartIndex + flattenedFolders.count
+        }
 
-            // normalBefore
-            if row < normalBefore.count {
-                let cell = tableView.dequeueReusableCell(withIdentifier: "Cell", for: indexPath)
-                cell.textLabel?.text = normalBefore[row]
-                return cell
-            }
-
-            // CoreData
-            // CoreData
-            // CoreData
-            else if row >= coreDataStartIndex && row < coreDataEndIndex {
-                let folderIndex = row - coreDataStartIndex
-                let folder = flattenedFolders[folderIndex]
-                let children = (folder.children?.allObjects as? [Folder]) ?? []
-                let hasChildren = !children.isEmpty
-
-                let cell = tableView.dequeueReusableCell(withIdentifier: CustomCell.reuseID, for: indexPath) as! CustomCell
-                cell.configureCell(
-                    name: folder.folderName ?? "無題",
-                    level: Int(folder.level),
-                    isExpanded: expandedDict[folder.id!] ?? false, // ←ここを修正
-                    hasChildren: hasChildren,
-                    systemName: "folder",
-                    tintColor: .systemBlue
-                )
-                // 矢印タップで開閉
-                cell.chevronTapped = { [weak self] in
-                    guard let self = self else { return }
-                    self.toggleFolder(folder)
-                }
-                return cell
-            }
-
-
-
-            // normalAfter
-            else {
-                let afterIndex = row - coreDataEndIndex
-                let cell = tableView.dequeueReusableCell(withIdentifier: "Cell", for: indexPath)
-                cell.textLabel?.text = normalAfter[afterIndex]
-                return cell
-            }
+        // normalAfter
+        else {
+            let afterIndex = row - coreDataEndIndex
+            let cell = tableView.dequeueReusableCell(withIdentifier: "Cell", for: indexPath)
+            cell.textLabel?.text = normalAfter[afterIndex]
+            return cell
         }
     }
 
-    // toggleFolder を書き換え
+    // MARK: - ToggleFolder
     func toggleFolder(_ folder: Folder) {
-        guard let flatIndex = flattenedFolders.firstIndex(of: folder) else { return }
-        
-        let tableRowIndex = normalBefore.count + flatIndex  // ←補正
-        let isExpanded = expandedFolders.contains(folder)
+        let id = folder.id!
+        let isExpanded = expandedDict[id] ?? false
+        expandedDict[id] = !isExpanded
 
-        tableView.beginUpdates()
-
-        if isExpanded {
-            // --- 折りたたむ ---
-            var endIndex = flatIndex + 1
-            while endIndex < flattenedFolders.count,
-                  flattenedFolders[endIndex].level > folder.level {
-                endIndex += 1
-            }
-
-            // 削除範囲（flattenedFolders と TableView の両方で同じ範囲）
-            let deleteRange = (flatIndex + 1)..<endIndex
-            flattenedFolders.removeSubrange(deleteRange)
-
-            let deleteIndexPaths = deleteRange.map {
-                IndexPath(row: normalBefore.count + $0, section: 0) // ←補正付き
-            }
-            tableView.deleteRows(at: deleteIndexPaths, with: .fade)
-            expandedFolders.remove(folder)
-
-        } else {
-            // --- 展開 ---
-            let children = (folder.children?.allObjects as? [Folder])?
-                .sorted(by: { $0.sortIndex < $1.sortIndex }) ?? []
-            
-            let insertPosition = flatIndex + 1
-            flattenedFolders.insert(contentsOf: children, at: insertPosition)
-
-            let insertIndexPaths = (0..<children.count).map {
-                IndexPath(row: normalBefore.count + insertPosition + $0, section: 0) // ←補正付き
-            }
-            tableView.insertRows(at: insertIndexPaths, with: .fade)
-            expandedFolders.insert(folder)
-        }
-
-        tableView.endUpdates()
-
-        // 親フォルダの矢印更新（補正付き）
-        if let cell = tableView.cellForRow(at: IndexPath(row: tableRowIndex, section: 0)) as? CustomCell {
-            cell.rotateChevron(expanded: !isExpanded)
+        // flattenedFolders 再構築
+        if let rootFolders = fetchedResultsController.fetchedObjects?.filter({ $0.parent == nil }) {
+            flattenedFolders = flatten(nodes: rootFolders)
+            tableView.reloadData()
         }
     }
 
