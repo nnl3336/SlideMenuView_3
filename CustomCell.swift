@@ -67,8 +67,8 @@ final class CustomCell: UITableViewCell {
 
             chevronIcon.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
             chevronIcon.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            chevronIcon.widthAnchor.constraint(equalToConstant: 16),
-            chevronIcon.heightAnchor.constraint(equalToConstant: 16)
+            chevronIcon.widthAnchor.constraint(equalToConstant: 20),
+            chevronIcon.heightAnchor.constraint(equalToConstant: 20)
         ])
 
         titleLabel.numberOfLines = 0
