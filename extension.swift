@@ -7,6 +7,28 @@
 
 import SwiftUI
 
+import CoreData
+
+extension Dictionary {
+    func mapKeys<T: Hashable>(_ transform: (Key) -> T) -> [T: Value] {
+        return Dictionary<T, Value>(uniqueKeysWithValues: map { (transform($0.key), $0.value) })
+    }
+}
+
+extension Folder {
+    /// id が nil の場合、自動で UUID を割り当てる
+    var safeID: UUID {
+        if let id = self.id {
+            return id
+        } else {
+            let newID = UUID()
+            self.id = newID
+            try? self.managedObjectContext?.save()
+            return newID
+        }
+    }
+}
+
 //階層Folder
 /*extension Collection {
     subscript(safe index: Index) -> Element? {

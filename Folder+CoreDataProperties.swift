@@ -23,6 +23,7 @@ extension Folder {
     //@NSManaged public var level: Int64
     @NSManaged public var children: NSSet?
     @NSManaged public var parent: Folder?
+    @NSManaged public var id: UUID?
 
 }
 
