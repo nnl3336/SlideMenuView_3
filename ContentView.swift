@@ -303,6 +303,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         flattenedFolders = flatten(nodes: rootFolders)
     }
 
+    //flatten
     private func flatten(nodes: [Folder]) -> [Folder] {
         var result: [Folder] = []
 
@@ -323,8 +324,8 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         for node in sortedNodes {
             result.append(node)
             if node.isExpanded, let children = node.children as? Set<Folder> {
-                let childrenArray = Array(children).sorted { $0.sortIndex < $1.sortIndex }
-                result.append(contentsOf: flatten(nodes: childrenArray))
+                let children = (node.children as? Set<Folder>)?.sorted { $0.sortIndex < $1.sortIndex } ?? []
+                result.append(contentsOf: flatten(nodes: children))
             }
         }
 
@@ -448,12 +449,13 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     // toggleFolder を書き換え
     func toggleFolder(for folder: Folder) {
         guard let row = flattenedFolders.firstIndex(of: folder) else { return }
-        let parentLevel = getLevel(of: folder)
 
         if folder.isExpanded {
             // ----- 折りたたみ -----
+            let parentLevel = getLevel(of: folder)
             let indicesToDelete = indicesOfDescendantsInFlatData(startingAt: row, parentLevel: parentLevel)
-            folder.isExpanded = false  // Core Data に保存
+
+            folder.isExpanded = false
             try? context.save()
 
             for idx in indicesToDelete.sorted(by: >) {
@@ -474,12 +476,11 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             }
 
             let startIndex = row + 1
-            let indexPaths = itemsToInsert.enumerated().map { IndexPath(row: startIndex + $0.offset, section: 0) }
-
             flattenedFolders.insert(contentsOf: itemsToInsert, at: startIndex)
             folder.isExpanded = true
             try? context.save()
 
+            let indexPaths = itemsToInsert.enumerated().map { IndexPath(row: startIndex + $0.offset, section: 0) }
             tableView.beginUpdates()
             tableView.insertRows(at: indexPaths, with: .fade)
             tableView.endUpdates()
@@ -497,10 +498,11 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     private func visibleChildrenForExpand(of folder: Folder) -> [Folder] {
         let children = (folder.children?.allObjects as? [Folder])?
             .sorted { $0.sortIndex < $1.sortIndex } ?? []
+
         var result: [Folder] = []
         for child in children {
             result.append(child)
-            if child.isExpanded {   // ← CoreData を参照
+            if child.isExpanded {
                 result.append(contentsOf: visibleChildrenForExpand(of: child))
             }
         }
@@ -529,6 +531,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         }
         return indices
     }
+
 
 
     
