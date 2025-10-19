@@ -329,8 +329,11 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
         for node in sortedNodes {
             result.append(node)
-            // Core Data の isExpanded 属性を参照
-            if node.isExpanded, let children = node.children as? Set<Folder> {
+
+            // UserDefaults で保存した展開状態を優先
+            let isExpanded = expandedState[node.objectID] ?? node.isExpanded
+
+            if isExpanded, let children = node.children as? Set<Folder> {
                 let childrenSorted = children.sorted { $0.sortIndex < $1.sortIndex }
                 result.append(contentsOf: flatten(nodes: childrenSorted))
             }
@@ -446,6 +449,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         }
     }
     
+    // MARK: - 保存
     private func saveExpandedState() {
         var dict: [String: Bool] = [:]
         for (objectID, isExpanded) in expandedState {
@@ -454,6 +458,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         UserDefaults.standard.set(dict, forKey: "expandedState")
     }
 
+    // MARK: - 復元
     private func loadExpandedState() {
         guard let dict = UserDefaults.standard.dictionary(forKey: "expandedState") as? [String: Bool] else { return }
         var restored: [NSManagedObjectID: Bool] = [:]
@@ -542,7 +547,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         guard let flatIndex = flattenedFolders.firstIndex(of: folder) else { return }
 
         let tableRowIndex = normalBefore.count + flatIndex
-        let isExpanded = expandedFolders.contains(folder)
+        let isExpanded = expandedState[folder.objectID] ?? folder.isExpanded
 
         tableView.beginUpdates()
 
@@ -559,9 +564,11 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                 IndexPath(row: normalBefore.count + $0, section: 0)
             }
             tableView.deleteRows(at: deleteIndexPaths, with: .fade)
-            expandedFolders.remove(folder)
 
-            folder.isExpanded = false  // ←保存
+            expandedState[folder.objectID] = false
+            expandedFolders.remove(folder)
+            folder.isExpanded = false
+
         } else {
             // 展開
             let children = (folder.children?.allObjects as? [Folder])?
@@ -572,20 +579,23 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                 IndexPath(row: normalBefore.count + insertPosition + $0, section: 0)
             }
             tableView.insertRows(at: insertIndexPaths, with: .fade)
-            expandedFolders.insert(folder)
 
-            folder.isExpanded = true  // ←保存
+            expandedState[folder.objectID] = true
+            expandedFolders.insert(folder)
+            folder.isExpanded = true
         }
 
         tableView.endUpdates()
-        
+
         try? context.save() // CoreData に保存
+        saveExpandedState()  // UserDefaults に保存
 
         if let cell = tableView.cellForRow(at: IndexPath(row: tableRowIndex, section: 0)) as? CustomCell {
             cell.rotateChevron(expanded: !isExpanded)
         }
     }
 
+    
     
 
     // MARK: - UITableViewDelegate　デリゲート
