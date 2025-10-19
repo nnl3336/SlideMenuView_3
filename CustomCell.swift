@@ -18,6 +18,9 @@ final class CustomCell: UITableViewCell {
     
     var chevronTapped: (() -> Void)? // タップ時のコールバック
     private var isSearching = false
+    
+    private var level: Int = 0
+    private var hasChildren: Bool = false
 
     // Enumでセルタイプを管理
     enum CellType {
@@ -112,16 +115,18 @@ final class CustomCell: UITableViewCell {
     
     func configureCell(name: String, level: Int, isExpanded: Bool, hasChildren: Bool, systemName: String, tintColor: UIColor) {
         titleLabel.text = name
-        leadingConstraint.constant = CGFloat(16 + level * 24)
-        folderIcon.image = UIImage(systemName: systemName)
-        folderIcon.tintColor = tintColor
-        
-        if hasChildren {
-            chevronIcon.isHidden = false
-            chevronIcon.image = UIImage(systemName: "chevron.right")
-            rotateChevron(expanded: isExpanded, animated: false)
-        } else {
-            chevronIcon.isHidden = true
-        }
+        self.level = level
+        self.hasChildren = hasChildren
+
+        folderIcon.image = UIImage(systemName: systemName)?.withRenderingMode(.alwaysTemplate)
+        folderIcon.tintColor = .systemBlue
+
+        chevronIcon.isHidden = !hasChildren
+        chevronIcon.tintColor = tintColor
+        let imageName = isExpanded ? "chevron.down" : "chevron.right"
+        chevronIcon.image = UIImage(systemName: imageName)?.withRenderingMode(.alwaysTemplate)
+
+        leadingConstraint.constant = 16 + CGFloat(level * 20)
     }
+
 }
