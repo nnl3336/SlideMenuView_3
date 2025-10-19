@@ -445,65 +445,54 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
     // toggleFolder を書き換え
     func toggleFolder(_ folder: Folder) {
-        guard let folderIndex = flattenedFolders.firstIndex(of: folder) else { return }
+        guard let flatIndex = flattenedFolders.firstIndex(of: folder) else { return }
+        
+        let tableRowIndex = normalBefore.count + flatIndex  // ←補正
         let isExpanded = expandedFolders.contains(folder)
-        let coreDataStartIndex = normalBefore.count
-        let startIndex = coreDataStartIndex + folderIndex
 
         tableView.beginUpdates()
 
         if isExpanded {
-            // 折りたたむ：flattenedFoldersから子フォルダを削除
-            var endIndex = startIndex + 1
-            while endIndex < coreDataStartIndex + flattenedFolders.count,
-                  flattenedFolders[endIndex - coreDataStartIndex].level > folder.level {
+            // --- 折りたたむ ---
+            var endIndex = flatIndex + 1
+            while endIndex < flattenedFolders.count,
+                  flattenedFolders[endIndex].level > folder.level {
                 endIndex += 1
             }
-            flattenedFolders.removeSubrange((folderIndex + 1)..<(folderIndex + 1 + (endIndex - startIndex - 1)))
-            
-            // 親だけ展開状態を解除（子はexpandedFoldersに残す）
+
+            // 削除範囲（flattenedFolders と TableView の両方で同じ範囲）
+            let deleteRange = (flatIndex + 1)..<endIndex
+            flattenedFolders.removeSubrange(deleteRange)
+
+            let deleteIndexPaths = deleteRange.map {
+                IndexPath(row: normalBefore.count + $0, section: 0) // ←補正付き
+            }
+            tableView.deleteRows(at: deleteIndexPaths, with: .fade)
             expandedFolders.remove(folder)
+
         } else {
-            // 展開：flattenedFoldersに子フォルダを挿入（再帰的に展開）
+            // --- 展開 ---
             let children = (folder.children?.allObjects as? [Folder])?
                 .sorted(by: { $0.sortIndex < $1.sortIndex }) ?? []
             
-            var insertList: [Folder] = []
-            func addChildrenRecursively(_ nodes: [Folder]) {
-                for node in nodes {
-                    insertList.append(node)
-                    if expandedFolders.contains(node),
-                       let childNodes = node.children as? Set<Folder> {
-                        addChildrenRecursively(Array(childNodes).sorted(by: { $0.sortIndex < $1.sortIndex }))
-                    }
-                }
-            }
-            addChildrenRecursively(children)
-            
-            flattenedFolders.insert(contentsOf: insertList, at: folderIndex + 1)
-            let indexPaths = (0..<insertList.count).map { IndexPath(row: startIndex + 1 + $0, section: 0) }
-            tableView.insertRows(at: indexPaths, with: .fade)
+            let insertPosition = flatIndex + 1
+            flattenedFolders.insert(contentsOf: children, at: insertPosition)
 
-            // 親を展開状態に
+            let insertIndexPaths = (0..<children.count).map {
+                IndexPath(row: normalBefore.count + insertPosition + $0, section: 0) // ←補正付き
+            }
+            tableView.insertRows(at: insertIndexPaths, with: .fade)
             expandedFolders.insert(folder)
         }
 
-        // 親セルの矢印更新
-        if let cell = tableView.cellForRow(at: IndexPath(row: startIndex, section: 0)) as? CustomCell {
-            cell.configureCell(
-                name: folder.folderName ?? "無題",
-                level: Int(folder.level),
-                isExpanded: !isExpanded,
-                hasChildren: (folder.children?.count ?? 0) > 0,
-                systemName: "folder",
-                tintColor: .systemBlue
-            )
-        }
-
         tableView.endUpdates()
+
+        // 親フォルダの矢印更新（補正付き）
+        if let cell = tableView.cellForRow(at: IndexPath(row: tableRowIndex, section: 0)) as? CustomCell {
+            cell.rotateChevron(expanded: !isExpanded)
+        }
     }
 
-    
     
 
     // MARK: - UITableViewDelegate　デリゲート
