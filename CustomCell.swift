@@ -149,16 +149,5 @@ final class CustomCell: UITableViewCell {
             chevronIcon.transform = CGAffineTransform(rotationAngle: .pi/2)
         }
     }*/
-    
-    func setChevron(expanded: Bool, animated: Bool) {
-        let angle: CGFloat = expanded ? .pi/2 : 0
-        if animated {
-            UIView.animate(withDuration: 0.25) {
-                self.chevronIcon.transform = CGAffineTransform(rotationAngle: angle)
-            }
-        } else {
-            chevronIcon.transform = CGAffineTransform(rotationAngle: angle)
-        }
-    }
 
 }
