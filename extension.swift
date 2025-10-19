@@ -7,6 +7,23 @@
 
 import SwiftUI
 
+//階層Folder
+extension Collection {
+    subscript(safe index: Index) -> Element? {
+        return indices.contains(index) ? self[index] : nil
+    }
+}
+
+// CoreData Folder の UUID 拡張　階層Folder
+extension Folder {
+    var uuid: UUID {
+        if let id = self.value(forKey: "id") as? UUID { return id }
+        let newId = UUID()
+        self.setValue(newId, forKey: "id")
+        return newId
+    }
+}
+
 extension Folder {
     /// 親をたどって階層レベルを計算
     var level: Int {

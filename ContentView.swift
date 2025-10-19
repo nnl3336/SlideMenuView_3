@@ -438,8 +438,12 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         }
     }
 
+    // toggleFolder を書き換え
     func toggleFolder(_ folder: Folder) {
-        guard let startIndex = flattenedFolders.firstIndex(of: folder) else { return }
+        // CoreData フォルダの index
+        guard let folderIndex = flattenedFolders.firstIndex(of: folder) else { return }
+        let startIndex = folderIndex + normalBefore.count // テーブル上の row
+
         let isExpanded = expandedFolders.contains(folder)
 
         tableView.beginUpdates()
@@ -447,19 +451,18 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         if isExpanded {
             // 折りたたむ
             var endIndex = startIndex + 1
-            while endIndex < flattenedFolders.count,
-                  flattenedFolders[endIndex].level > folder.level {
+            while endIndex < startIndex + flattenedFolders.count,
+                  let f = flattenedFolders[safe: endIndex - normalBefore.count], f.level > folder.level {
                 endIndex += 1
             }
-            flattenedFolders.removeSubrange((startIndex + 1)..<endIndex)
+            flattenedFolders.removeSubrange((folderIndex + 1)..<folderIndex + (endIndex - startIndex))
             let indexPaths = (startIndex + 1..<endIndex).map { IndexPath(row: $0, section: 0) }
             tableView.deleteRows(at: indexPaths, with: .fade)
             expandedFolders.remove(folder)
         } else {
             // 展開
-            let children = (folder.children?.allObjects as? [Folder])?
-                .sorted(by: { $0.sortIndex < $1.sortIndex }) ?? []
-            flattenedFolders.insert(contentsOf: children, at: startIndex + 1)
+            let children = (folder.children?.allObjects as? [Folder])?.sorted(by: { $0.sortIndex < $1.sortIndex }) ?? []
+            flattenedFolders.insert(contentsOf: children, at: folderIndex + 1)
             let indexPaths = (0..<children.count).map { IndexPath(row: startIndex + 1 + $0, section: 0) }
             tableView.insertRows(at: indexPaths, with: .fade)
             expandedFolders.insert(folder)
