@@ -27,6 +27,12 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         setupUI()
         fetchFolders()
         setupSearchAndSortHeader()
+        // 通常セル用
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "Cell")
+        
+        // カスタムセル用
+        tableView.register(CustomCell.self, forCellReuseIdentifier: CustomCell.reuseID)
+        
     }
     
     //***
@@ -237,7 +243,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         tableView.delegate = self
         view.addSubview(tableView)
         
-        tableView.register(CustomCell.self, forCellReuseIdentifier: CustomCell.reuseID)
+        //tableView.register(CustomCell.self, forCellReuseIdentifier: CustomCell.reuseID)
     }
 
     // MARK: - Fetch　frc
@@ -357,65 +363,41 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         }
     }
 
-    /*func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         if isSearching {
+            // 検索時は CoreData の階層ごとの数
             let level = sortedLevels[section]
             return groupedByLevel[level]?.count ?? 0
         } else {
-            return flattenedFolders.count
-        }
-    }*/
-    /*func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        if isSearching {
-            return groupedByLevel[level]?.values.flatMap { $0 }.count ?? 0
-        } else {
-            // normalBefore + CoreData + normalAfter
-            let coreDataCount = groupedCoreData.values.flatMap { $0 }.count
-            return normalBefore.count + coreDataCount + normalAfter.count
-        }
-    }*/ //x
-    /*func numberOfRowsInSection(_ section: Int) -> Int {
-        if isSearching {
-            return groupedByLevel[Int64(section)]?.count ?? 0
-        } else {
-            return normalBefore.count + normalAfter.count + groupedByLevel.values.flatMap { $0 }.count
-        }
-    }*///x
-    /*func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        if isSearching {
-            return groupedByLevel[Int64(section)]?.count ?? 0
-        } else {
-            let coreDataCount = groupedByLevel.values.flatMap { $0 }.count
-            return normalBefore.count + coreDataCount + normalAfter.count
-        }
-    }*///x
-    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        if isSearching {
-            return groupedByLevel[Int64(section)]?.count ?? 0
-        } else {
+            // 通常時は normalBefore + flattenedFolders + normalAfter
             return normalBefore.count + flattenedFolders.count + normalAfter.count
         }
     }
 
-
+    //セル表示
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-
         if isSearching {
+            // 検索モード
             let level = sortedLevels[indexPath.section]
             guard let folders = groupedByLevel[level], indexPath.row < folders.count else {
                 return UITableViewCell()
             }
             let folder = folders[indexPath.row]
+            let children = (folder.children?.allObjects as? [Folder]) ?? []
+            let hasChildren = !children.isEmpty
+
             let cell = tableView.dequeueReusableCell(withIdentifier: CustomCell.reuseID, for: indexPath) as! CustomCell
             cell.configureCell(
                 name: folder.folderName ?? "無題",
                 level: Int(folder.level),
-                isExpanded: false,
-                hasChildren: (folder.children?.count ?? 0) > 0,
-                systemName: "folder"
+                isExpanded: false, // 検索時は展開不可にする場合
+                hasChildren: hasChildren,
+                systemName: "folder",
+                tintColor: .systemGray
             )
             return cell
         } else {
+            // 通常モード
             let row = indexPath.row
             let coreDataStartIndex = normalBefore.count
             let coreDataEndIndex = coreDataStartIndex + flattenedFolders.count
@@ -431,13 +413,17 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             else if row >= coreDataStartIndex && row < coreDataEndIndex {
                 let folderIndex = row - coreDataStartIndex
                 let folder = flattenedFolders[folderIndex]
+                let children = (folder.children?.allObjects as? [Folder]) ?? []
+                let hasChildren = !children.isEmpty
+
                 let cell = tableView.dequeueReusableCell(withIdentifier: CustomCell.reuseID, for: indexPath) as! CustomCell
                 cell.configureCell(
                     name: folder.folderName ?? "無題",
                     level: Int(folder.level),
                     isExpanded: expandedFolders.contains(folder),
-                    hasChildren: (folder.children?.count ?? 0) > 0,
-                    systemName: "folder"
+                    hasChildren: hasChildren,
+                    systemName: "folder",
+                    tintColor: .systemBlue
                 )
                 return cell
             }
@@ -451,6 +437,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             }
         }
     }
+
     func toggleFolder(_ folder: Folder) {
         guard let startIndex = flattenedFolders.firstIndex(of: folder) else { return }
         let isExpanded = expandedFolders.contains(folder)
@@ -484,26 +471,46 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
     // MARK: - UITableViewDelegate　デリゲート
 
+    var sections: [SectionType] = [.normalBefore, .coreData, .normalAfter]
+
+    //セルタップ
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        guard !isSearching else { return } // 検索時は開閉しない
+        guard !isSearching else { return }
 
-        let folder = flattenedFolders[indexPath.row]
+        let row = indexPath.row
+        let coreDataStartIndex = normalBefore.count
+        let coreDataEndIndex = coreDataStartIndex + flattenedFolders.count
 
-        if isHideMode {
-            // 選択モードなら選択状態を切り替える
-            if selectedFolders.contains(folder) {
-                selectedFolders.remove(folder)
+        if row < normalBefore.count {
+            // normalBefore
+            print("NormalBefore tapped: \(normalBefore[row])")
+            tableView.deselectRow(at: indexPath, animated: true)
+        } else if row < coreDataEndIndex {
+            // coreData
+            let folderIndex = row - coreDataStartIndex
+            let folder = flattenedFolders[folderIndex]
+            print("CoreData folder tapped: \(folder.folderName ?? "無題")")
+
+            if isHideMode {
+                if selectedFolders.contains(folder) {
+                    selectedFolders.remove(folder)
+                } else {
+                    selectedFolders.insert(folder)
+                }
+                tableView.reloadRows(at: [indexPath], with: .none)
+                updateToolbar()
             } else {
-                selectedFolders.insert(folder)
+                tableView.deselectRow(at: indexPath, animated: true)
             }
-            tableView.reloadRows(at: [indexPath], with: .none)
-            updateToolbar()
         } else {
-            // 通常モードでは何もしない
+            // normalAfter
+            let afterIndex = row - coreDataEndIndex
+            print("NormalAfter tapped: \(normalAfter[afterIndex])")
             tableView.deselectRow(at: indexPath, animated: true)
         }
     }
 
+    
 
     // MARK: - UISearchBarDelegate　デリゲート
 

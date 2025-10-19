@@ -16,13 +16,16 @@ final class CustomCell: UITableViewCell {
     private let chevronIcon = UIImageView() // 右端矢印
     private var leadingConstraint: NSLayoutConstraint!
     
-    // ノーマルセル用フラグ
-    private var isNormalCell = false
-    // ...既存プロパティ
     var chevronTapped: (() -> Void)? // タップ時のコールバック
+    private var isSearching = false
+
+    // Enumでセルタイプを管理
+    enum CellType {
+        case coreData(folder: Folder, level: Int, isExpanded: Bool)
+        case normal(text: String)
+    }
     
-    //***
-    
+    // MARK: - init
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         selectionStyle = .default
@@ -31,8 +34,7 @@ final class CustomCell: UITableViewCell {
     
     required init?(coder: NSCoder) { fatalError() }
     
-    //***
-    
+    // MARK: - UI setup
     private func setupViews() {
         folderIcon.translatesAutoresizingMaskIntoConstraints = false
         folderIcon.contentMode = .scaleAspectFit
@@ -53,51 +55,40 @@ final class CustomCell: UITableViewCell {
         contentView.addSubview(chevronIcon)
 
         leadingConstraint = folderIcon.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16)
-
         NSLayoutConstraint.activate([
             leadingConstraint,
             folderIcon.widthAnchor.constraint(equalToConstant: 32),
             folderIcon.heightAnchor.constraint(equalToConstant: 32),
             folderIcon.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-
+            
             titleLabel.leadingAnchor.constraint(equalTo: folderIcon.trailingAnchor, constant: 12),
             titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: chevronIcon.leadingAnchor, constant: -8),
             titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 10),
             titleLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -10),
-
+            
             chevronIcon.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
             chevronIcon.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             chevronIcon.widthAnchor.constraint(equalToConstant: 20),
             chevronIcon.heightAnchor.constraint(equalToConstant: 20)
         ])
-
+        
         titleLabel.numberOfLines = 0
     }
 
-    private var isSearching = false
-    
     @objc private func chevronTappedAction() {
-        guard !isSearching else { return }   // 検索中は無視
+        guard !isSearching else { return }
         chevronTapped?()
     }
     
     func setSearching(_ searching: Bool) {
         self.isSearching = searching
-        
-        if searching {
-            chevronIcon.alpha = 0.5
-            chevronIcon.isUserInteractionEnabled = false
-            chevronIcon.tintColor = .systemGray // 青にする
-        } else {
-            chevronIcon.alpha = 1.0
-            chevronIcon.isUserInteractionEnabled = true
-            chevronIcon.tintColor = .systemBlue // 通常はグレー
-        }
+        chevronIcon.alpha = searching ? 0.5 : 1.0
+        chevronIcon.isUserInteractionEnabled = !searching
+        chevronIcon.tintColor = searching ? .systemGray : .systemBlue
     }
-
     
     func rotateChevron(expanded: Bool, animated: Bool = true) {
-        let angle: CGFloat = expanded ? .pi/2 : 0 // 右向き→下向き
+        let angle: CGFloat = expanded ? .pi/2 : 0
         if animated {
             UIView.animate(withDuration: 0.25) {
                 self.chevronIcon.transform = CGAffineTransform(rotationAngle: angle)
@@ -107,32 +98,28 @@ final class CustomCell: UITableViewCell {
         }
     }
     
-    // CoreData用セル
-    func configure(folder: Folder, level: Int, isExpanded: Bool) {
-        isNormalCell = false
-        let name = folder.folderName ?? "無題"
-        let hasChildren = (folder.children?.count ?? 0) > 0
-        configureCell(name: name, level: level, isExpanded: isExpanded, hasChildren: hasChildren, systemName: "folder")
+    // MARK: - Configure
+    func configure(cellType: CellType) {
+        switch cellType {
+        case .coreData(let folder, let level, let isExpanded):
+            let name = folder.folderName ?? "無題"
+            let hasChildren = (folder.children?.count ?? 0) > 0
+            configureCell(name: name, level: level, isExpanded: isExpanded, hasChildren: hasChildren, systemName: "folder", tintColor: .systemBlue)
+        case .normal(let text):
+            configureCell(name: text, level: 0, isExpanded: false, hasChildren: false, systemName: "circle.fill", tintColor: .systemGray)
+        }
     }
     
-    // ノーマルセル用
-    func configure(normalText: String) {
-        isNormalCell = true
-        configureCell(name: normalText, level: 0, isExpanded: false, hasChildren: false, systemName: "circle.fill")
-    }
-    
-    // メイン設定
-    func configureCell(name: String, level: Int, isExpanded: Bool, hasChildren: Bool, systemName: String) {
+    func configureCell(name: String, level: Int, isExpanded: Bool, hasChildren: Bool, systemName: String, tintColor: UIColor) {
         titleLabel.text = name
         leadingConstraint.constant = CGFloat(16 + level * 24)
         folderIcon.image = UIImage(systemName: systemName)
-        folderIcon.tintColor = isNormalCell ? .systemGray : .systemBlue
+        folderIcon.tintColor = tintColor
         
-        // 右端矢印
         if hasChildren {
             chevronIcon.isHidden = false
-            chevronIcon.image = UIImage(systemName: "chevron.right") // 常に右向き画像
-            rotateChevron(expanded: isExpanded, animated: false)    // 回転で下向きにする
+            chevronIcon.image = UIImage(systemName: "chevron.right")
+            rotateChevron(expanded: isExpanded, animated: false)
         } else {
             chevronIcon.isHidden = true
         }
