@@ -501,25 +501,66 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     
     // MARK: - Toggle Folder（展開／折りたたみ）　トグル
     func toggleFolder(_ folder: Folder) {
+        // visibleFlattenedFolders 上の index
+        guard let index = visibleFlattenedFolders.firstIndex(of: folder) else { return }
+        
+        // テーブル全体の row を計算
+        let row = normalBefore.count + index
+        let indexPath = IndexPath(row: row, section: 0)
+
         let currently = expandedState[folder.uuid] ?? false
         expandedState[folder.uuid] = !currently
 
-        // 子孫の表示状態を更新
+        tableView.beginUpdates()
+
         if currently {
-            hideDescendants(of: folder)
+            // 閉じる: 全子孫を削除
+            let descendants = allDescendants(of: folder)
+            let indexPaths = descendants.compactMap { visibleFlattenedFolders.firstIndex(of: $0) }
+                                        .map { IndexPath(row: normalBefore.count + $0, section: 0) }
+
+            visibleFlattenedFolders.removeAll { descendants.contains($0) }
+            tableView.deleteRows(at: indexPaths, with: .fade)
+
         } else {
-            showChildren(of: folder)
+            // 開く: 直下＋展開状態に従う子孫を挿入
+            let childrenToInsert = childrenToShow(for: folder)
+            let insertIndex = index + 1
+            visibleFlattenedFolders.insert(contentsOf: childrenToInsert, at: insertIndex)
+
+            let indexPaths = (0..<childrenToInsert.count).map { IndexPath(row: normalBefore.count + insertIndex + $0, section: 0) }
+            tableView.insertRows(at: indexPaths, with: .fade)
         }
 
-        // visibleFlattenedFolders を再構築
-        buildVisibleFlattenedFolders()
-
-        // UserDefaults に保存
+        tableView.endUpdates()
         saveExpandedState()
-
-        // tableView 更新
-        tableView.reloadData()
     }
+
+    // 全子孫を取得
+    func allDescendants(of folder: Folder) -> [Folder] {
+        guard let children = folder.children?.allObjects as? [Folder] else { return [] }
+        var result: [Folder] = []
+        for child in children {
+            result.append(child)
+            result.append(contentsOf: allDescendants(of: child))
+        }
+        return result
+    }
+
+    // 展開状態を考慮して表示すべき子孫を再帰的に取得
+    func childrenToShow(for folder: Folder) -> [Folder] {
+        guard let children = folder.children?.allObjects as? [Folder] else { return [] }
+        var result: [Folder] = []
+        let sortedChildren = children.sorted { $0.sortIndex < $1.sortIndex }
+        for child in sortedChildren {
+            result.append(child)
+            if expandedState[child.uuid] == true {
+                result.append(contentsOf: childrenToShow(for: child))
+            }
+        }
+        return result
+    }
+
     
 
     //
