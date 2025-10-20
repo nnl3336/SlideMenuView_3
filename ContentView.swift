@@ -51,18 +51,41 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     private var sortButton: UIButton!
     private var headerStackView: UIStackView!
     private let bottomToolbar = UIToolbar()
-    enum SortType: Int {
+    /*enum SortType: Int {
         case order = 0
         case title = 1
         case createdAt = 2
         case currentDate = 3
+    }*/
+    enum SortType: String {
+        case createdAt
+        case title
+        case currentDate
+        case order
     }
-    private var currentSort: SortType = .createdAt {
-        didSet { UserDefaults.standard.set(currentSort.rawValue, forKey: "currentSort") }
+    private var currentSort: SortType = {
+        if let raw = UserDefaults.standard.string(forKey: "currentSort"),
+           let sort = SortType(rawValue: raw) {
+            return sort
+        }
+        return .createdAt
+    }() {
+        didSet {
+            UserDefaults.standard.set(currentSort.rawValue, forKey: "currentSort")
+        }
     }
-    private var ascending: Bool = true {
-        didSet { UserDefaults.standard.set(ascending, forKey: "ascending") }
+
+    private var ascending: Bool = {
+        if UserDefaults.standard.object(forKey: "ascending") != nil {
+            return UserDefaults.standard.bool(forKey: "ascending")
+        }
+        return true
+    }() {
+        didSet {
+            UserDefaults.standard.set(ascending, forKey: "ascending")
+        }
     }
+
     var selectedFolders: Set<Folder> = []
     var bottomToolbarState: BottomToolbarState = .normal {
         didSet { updateToolbar() }
@@ -182,17 +205,16 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             // 1. UIAction 内で編集モードに切り替え
             UIAction(title: "順番", image: UIImage(systemName: "list.number"),
                      state: currentSort == .order ? .on : .off) { [weak self] _ in
-                         guard let self = self else { return }
-                         self.currentSort = .order
-                         self.fetchFolders()
-                         
-                         // 編集モードに切り替え（ハンドルが出る）
-                         // 編集モードにしても削除は不可、ハンドルのみ表示
-                         tableView.setEditing(currentSort == .order, animated: true)
-                         tableView.allowsSelectionDuringEditing = true // 選択も可能
-                         // メニュー更新
-                         if let button = self.sortButton { button.menu = self.makeSortMenu() }
-                     },
+                guard let self = self else { return }
+                self.currentSort = .order
+                UserDefaults.standard.set(self.currentSort.rawValue, forKey: "currentSort") // 確実に保存
+                self.fetchFolders()
+                
+                self.tableView.setEditing(true, animated: true)
+                self.tableView.allowsSelectionDuringEditing = true
+                
+                if let button = self.sortButton { button.menu = self.makeSortMenu() }
+            },
             
             
             UIAction(title: ascending ? "昇順 (A→Z)" : "降順 (Z→A)",
@@ -359,6 +381,39 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
     //移動
     
+    func tableView(_ tableView: UITableView,
+                   moveRowAt sourceIndexPath: IndexPath,
+                   to destinationIndexPath: IndexPath) {
+        
+        let movedFolder = flattenedFolders.remove(at: sourceIndexPath.row)
+        flattenedFolders.insert(movedFolder, at: destinationIndexPath.row)
+        
+        // CoreData の order を更新
+        for (index, folder) in flattenedFolders.enumerated() {
+            folder.sortIndex = Int64(index)  // CoreData の順番用プロパティ
+        }
+        
+        // 保存
+        do {
+            try context.save()
+        } catch {
+            print("Failed to save folder order:", error)
+        }
+        
+        tableView.reloadData()
+    }
+    func saveFolderOrder() {
+        for (index, folder) in flattenedFolders.enumerated() {
+            folder.sortIndex = Int64(index)  // CoreData の順番用プロパティ
+        }
+        
+        do {
+            try context.save()
+        } catch {
+            print("Failed to save folder order:", error)
+        }
+    }
+    
     // 削除・挿入ボタンを出さない
     func tableView(_ tableView: UITableView, editingStyleForRowAt indexPath: IndexPath) -> UITableViewCell.EditingStyle {
         return .none
@@ -376,13 +431,13 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     }
     
     
-    func tableView(_ tableView: UITableView, moveRowAt sourceIndexPath: IndexPath, to destinationIndexPath: IndexPath) {
+    /*func tableView(_ tableView: UITableView, moveRowAt sourceIndexPath: IndexPath, to destinationIndexPath: IndexPath) {
         // flattenedFolders の並びを更新
         let movedFolder = flattenedFolders.remove(at: sourceIndexPath.row)
         flattenedFolders.insert(movedFolder, at: destinationIndexPath.row)
         
         // ここで必要なら CoreData の順序も更新
-    }
+    }*/
     
     //セクション
     

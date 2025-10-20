@@ -12,7 +12,7 @@ final class CustomCell: UITableViewCell {
     static let reuseID = "FolderCell"
     
     private let folderIcon = UIImageView()
-    private let titleLabel = UILabel()
+    /*private*/ let titleLabel = UILabel()
     let chevronIcon = UIImageView()
     private var leadingConstraint: NSLayoutConstraint!
     
