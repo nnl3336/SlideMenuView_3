@@ -284,16 +284,31 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     
     private func fetchFolders(predicate: NSPredicate? = nil) {
         let request: NSFetchRequest<Folder> = Folder.fetchRequest()
+        
+        // sortDescriptors を sortIndex を優先して設定
+        let sortKey: String
         switch currentSort {
         case .order:
-            request.sortDescriptors = [NSSortDescriptor(key: "sortIndex", ascending: ascending)]
+            sortKey = "sortIndex"
         case .title:
-            request.sortDescriptors = [NSSortDescriptor(key: "folderName", ascending: ascending)]
+            sortKey = "folderName"
         case .createdAt:
-            request.sortDescriptors = [NSSortDescriptor(key: "folderMadeTime", ascending: ascending)]
+            sortKey = "folderMadeTime"
         case .currentDate:
-            request.sortDescriptors = [NSSortDescriptor(key: "currentDate", ascending: ascending)]
+            sortKey = "currentDate"
         }
+
+        if currentSort == .order {
+            // 並び替えモード order のときは sortIndex のみ
+            request.sortDescriptors = [NSSortDescriptor(key: "sortIndex", ascending: ascending)]
+        } else {
+            // その他のモードのときは sortIndex を優先、さらにタイトルや日付でソート
+            request.sortDescriptors = [
+                NSSortDescriptor(key: "sortIndex", ascending: true),
+                NSSortDescriptor(key: sortKey, ascending: ascending)
+            ]
+        }
+
         if let predicate = predicate {
             request.predicate = predicate
         }
@@ -318,7 +333,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             print("Fetch failed: \(error)")
         }
     }
-    
+
     // MARK: - 検索
 
     // MARK: - 検索時: 階層ごと表示
