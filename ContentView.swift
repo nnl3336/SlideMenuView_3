@@ -466,25 +466,21 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         }
     }
     
+    
+
+    
+    
+    // MARK: - 開閉
+    
     //基本プロパティ
     
     //var expandedState: [NSManagedObjectID: Bool] = [:]
     var expandedState: [UUID: Bool] = [:]
     
-    //***
-
-    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        if isSearching {
-            // 検索時は従来通り
-            let level = sortedLevels[section]
-            return groupedByLevel[level]?.count ?? 0
-        } else {
-            // flattenedFolders から表示可能なものだけカウント
-            return flattenedFolders.filter { isVisible($0) }.count + normalBefore.count + normalAfter.count
-        }
-    }
+    var visibleState: [UUID: Bool] = [:]
     
-    // MARK: - 開閉
+    //***
+    
     // 保存
     private func saveExpandedState() {
         var dict: [String: Bool] = [:]
@@ -527,20 +523,8 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         }
     }
     
-    //非表示セルは heightForRowAt で高さを0にする
-    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        guard indexPath.row < flattenedFolders.count else { return 0 }
-        let folder = flattenedFolders[indexPath.row]
-        let isVisible = visibleState[folder.uuid] ?? true
-        return isVisible ? UITableView.automaticDimension : 0
-    }
-
-    //
-    
-    var visibleState: [UUID: Bool] = [:]
-    
     // MARK: - Toggle Folder（展開／折りたたみ）　トグル
-    /*func toggleFolder(_ folder: Folder) {
+    func toggleFolder(_ folder: Folder) {
         let currently = expandedState[folder.uuid] ?? false
         expandedState[folder.uuid] = !currently
 
@@ -558,41 +542,36 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             self.tableView.beginUpdates()
             self.tableView.endUpdates()
         }
-    }*/
-    func toggleFolder(_ folder: Folder) {
-        let currently = expandedState[folder.uuid] ?? false
-        expandedState[folder.uuid] = !currently
-        saveExpandedState()
-        
-        // 表示用配列を更新
-        let oldVisible = visibleFlattenedFolders
-        buildVisibleFlattenedFolders()  // 新しい visibleFlattenedFolders
-        
-        // 差分を計算してアニメーション挿入/削除
-        tableView.performBatchUpdates {
-            let oldSet = Set(oldVisible)
-            let newSet = Set(visibleFlattenedFolders)
-            
-            // 削除
-            let removed = oldSet.subtracting(newSet)
-            for folder in removed {
-                if let index = oldVisible.firstIndex(of: folder) {
-                    tableView.deleteRows(at: [IndexPath(row: index + normalBefore.count, section: 0)], with: .fade)
-                }
-            }
-            // 追加
-            let added = newSet.subtracting(oldSet)
-            for folder in added {
-                if let index = visibleFlattenedFolders.firstIndex(of: folder) {
-                    tableView.insertRows(at: [IndexPath(row: index + normalBefore.count, section: 0)], with: .fade)
-                }
-            }
-        }
     }
+    
+
+    //
+
+    
     
     // MARK: - UITableViewDelegate　デリゲート
 
     var sections: [SectionType] = [.normalBefore, .coreData, .normalAfter]
+    
+    //セクション数
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        if isSearching {
+            // 検索時は従来通り
+            let level = sortedLevels[section]
+            return groupedByLevel[level]?.count ?? 0
+        } else {
+            // flattenedFolders から表示可能なものだけカウント
+            return flattenedFolders.filter { isVisible($0) }.count + normalBefore.count + normalAfter.count
+        }
+    }
+    
+    //非表示セルは heightForRowAt で高さを0にする
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        guard indexPath.row < flattenedFolders.count else { return 0 }
+        let folder = flattenedFolders[indexPath.row]
+        let isVisible = visibleState[folder.uuid] ?? true
+        return isVisible ? UITableView.automaticDimension : 0
+    }
 
     //セルタップ
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
