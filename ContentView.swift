@@ -410,23 +410,17 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
     //セル表示
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let row = indexPath.row
-
-        if row < normalBefore.count {
-            let cell = tableView.dequeueReusableCell(withIdentifier: "Cell", for: indexPath)
-            cell.textLabel?.text = normalBefore[row]
-            return cell
-        }
-
-        let folderStartIndex = normalBefore.count
-        let folderEndIndex = folderStartIndex + visibleFlattenedFolders.count
-
-        if row >= folderStartIndex && row < folderEndIndex {
-            let folder = visibleFlattenedFolders[row - folderStartIndex]
-            let isExpanded = expandedState[folder.uuid] ?? false
-            let hasChildren = (folder.children?.count ?? 0) > 0
+        if isSearching {
+            // 検索モード: セクションごとの階層表示
+            let level = sortedLevels[indexPath.section]
+            guard let folders = groupedByLevel[level], indexPath.row < folders.count else {
+                return UITableViewCell()
+            }
+            let folder = folders[indexPath.row]
 
             let cell = tableView.dequeueReusableCell(withIdentifier: CustomCell.reuseID, for: indexPath) as! CustomCell
+            let isExpanded = expandedState[folder.uuid] ?? false
+            let hasChildren = (folder.children?.count ?? 0) > 0
             cell.configureCell(
                 name: folder.folderName ?? "無題",
                 level: Int(folder.level),
@@ -435,61 +429,79 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                 systemName: "folder",
                 tintColor: .systemBlue
             )
+            return cell
+        } else {
+            // 通常モード: normalBefore + visibleFlattenedFolders + normalAfter
+            let row = indexPath.row
 
-            cell.chevronTapped = { [weak self, weak cell] in
-                guard let self = self, let cell = cell else { return }
-                let currentlyExpanded = self.expandedState[folder.uuid] ?? false
-
-                // 矢印を即時回転
-                cell.rotateChevron(expanded: !currentlyExpanded)
-
-                // データ更新
-                self.expandedState[folder.uuid] = !currentlyExpanded
-                let oldVisible = self.visibleFlattenedFolders
-                if currentlyExpanded {
-                    self.hideDescendants(of: folder)
-                } else {
-                    self.showChildren(of: folder)
-                }
-                let newVisible = self.visibleFlattenedFolders
-
-                let startRow = self.normalBefore.count
-
-                // 削除される行
-                var deleteIndexPaths: [IndexPath] = []
-                for (i, f) in oldVisible.enumerated() {
-                    if !newVisible.contains(f) {
-                        deleteIndexPaths.append(IndexPath(row: startRow + i, section: 0))
-                    }
-                }
-
-                // 追加される行
-                var insertIndexPaths: [IndexPath] = []
-                for (i, f) in newVisible.enumerated() {
-                    if !oldVisible.contains(f) {
-                        insertIndexPaths.append(IndexPath(row: startRow + i, section: 0))
-                    }
-                }
-
-                self.tableView.beginUpdates()
-                self.tableView.deleteRows(at: deleteIndexPaths, with: .fade)
-                self.tableView.insertRows(at: insertIndexPaths, with: .fade)
-                self.tableView.endUpdates()
-
-                self.saveExpandedState()
+            if row < normalBefore.count {
+                let cell = tableView.dequeueReusableCell(withIdentifier: "Cell", for: indexPath)
+                cell.textLabel?.text = normalBefore[row]
+                return cell
             }
 
+            let folderStartIndex = normalBefore.count
+            let folderEndIndex = folderStartIndex + visibleFlattenedFolders.count
 
+            if row >= folderStartIndex && row < folderEndIndex {
+                let folder = visibleFlattenedFolders[row - folderStartIndex]
+                let isExpanded = expandedState[folder.uuid] ?? false
+                let hasChildren = (folder.children?.count ?? 0) > 0
 
+                let cell = tableView.dequeueReusableCell(withIdentifier: CustomCell.reuseID, for: indexPath) as! CustomCell
+                cell.configureCell(
+                    name: folder.folderName ?? "無題",
+                    level: Int(folder.level),
+                    isExpanded: isExpanded,
+                    hasChildren: hasChildren,
+                    systemName: "folder",
+                    tintColor: .systemBlue
+                )
+
+                // 矢印タップのハンドリング
+                cell.chevronTapped = { [weak self, weak cell] in
+                    guard let self = self, let cell = cell else { return }
+                    let currentlyExpanded = self.expandedState[folder.uuid] ?? false
+
+                    cell.rotateChevron(expanded: !currentlyExpanded)
+                    self.expandedState[folder.uuid] = !currentlyExpanded
+
+                    let oldVisible = self.visibleFlattenedFolders
+                    if currentlyExpanded {
+                        self.hideDescendants(of: folder)
+                    } else {
+                        self.showChildren(of: folder)
+                    }
+                    let newVisible = self.visibleFlattenedFolders
+                    let startRow = self.normalBefore.count
+
+                    var deleteIndexPaths: [IndexPath] = []
+                    for (i, f) in oldVisible.enumerated() where !newVisible.contains(f) {
+                        deleteIndexPaths.append(IndexPath(row: startRow + i, section: 0))
+                    }
+
+                    var insertIndexPaths: [IndexPath] = []
+                    for (i, f) in newVisible.enumerated() where !oldVisible.contains(f) {
+                        insertIndexPaths.append(IndexPath(row: startRow + i, section: 0))
+                    }
+
+                    self.tableView.beginUpdates()
+                    self.tableView.deleteRows(at: deleteIndexPaths, with: .fade)
+                    self.tableView.insertRows(at: insertIndexPaths, with: .fade)
+                    self.tableView.endUpdates()
+
+                    self.saveExpandedState()
+                }
+
+                return cell
+            }
+
+            let afterIndex = row - folderEndIndex
+            let cell = tableView.dequeueReusableCell(withIdentifier: "Cell", for: indexPath)
+            cell.textLabel?.text = normalAfter[afterIndex]
             return cell
         }
-
-        let afterIndex = row - folderEndIndex
-        let cell = tableView.dequeueReusableCell(withIdentifier: "Cell", for: indexPath)
-        cell.textLabel?.text = normalAfter[afterIndex]
-        return cell
     }
-
     
 
     
@@ -529,13 +541,26 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     //子フォルダの可視制御
     func showChildren(of folder: Folder) {
         guard let index = visibleFlattenedFolders.firstIndex(of: folder),
-              let children = folder.children?.allObjects as? [Folder] else { return }
+              let childrenSet = folder.children as? Set<Folder> else { return }
 
-        // 親フォルダの下に挿入
+        // currentSort に従って並び替え
+        let children: [Folder]
+        switch currentSort {
+        case .order:
+            children = childrenSet.sorted { ascending ? $0.sortIndex < $1.sortIndex : $0.sortIndex > $1.sortIndex }
+        case .title:
+            children = childrenSet.sorted { ascending ? ($0.folderName ?? "") < ($1.folderName ?? "") : ($0.folderName ?? "") > ($1.folderName ?? "") }
+        case .createdAt:
+            children = childrenSet.sorted { ascending ? ($0.folderMadeTime ?? Date.distantPast) < ($1.folderMadeTime ?? Date.distantPast) : ($0.folderMadeTime ?? Date.distantPast) > ($1.folderMadeTime ?? Date.distantPast) }
+        case .currentDate:
+            children = childrenSet.sorted { ascending ? ($0.currentDate ?? Date.distantPast) < ($1.currentDate ?? Date.distantPast) : ($0.currentDate ?? Date.distantPast) > ($1.currentDate ?? Date.distantPast) }
+        }
+
+        // 挿入
         let insertIndex = index + 1
         visibleFlattenedFolders.insert(contentsOf: children, at: insertIndex)
 
-        // 子が展開済みなら孫も再帰的に追加
+        // 展開済みなら孫も再帰的に追加
         for child in children where expandedState[child.uuid] == true {
             showChildren(of: child)
         }
