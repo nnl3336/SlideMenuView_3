@@ -309,6 +309,14 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         guard let allFolders = fetchedResultsController.fetchedObjects else { return }
         let rootFolders = allFolders.filter { $0.parent == nil }
         flattenedFolders = flatten(nodes: rootFolders)
+
+        // 展開状態を反映して expandedFolders を初期化
+        expandedFolders.removeAll()
+        for folder in flattenedFolders {
+            if expandedState[folder.uuid] == true {
+                expandedFolders.insert(folder)
+            }
+        }
     }
 
     //flatten
@@ -332,8 +340,8 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         for node in sortedNodes {
             result.append(node)
 
-            // objectID を使って展開状態を確認
-            let isExpanded = expandedState[node.objectID] ?? node.isExpanded
+            // UUID をキーにして展開状態を確認
+            let isExpanded = expandedState[node.uuid] ?? node.isExpanded
 
             if isExpanded, let children = node.children as? Set<Folder> {
                 // 子は sortIndex で固定順
@@ -380,7 +388,8 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     
     //基本プロパティ
     
-    var expandedState: [NSManagedObjectID: Bool] = [:]
+    //var expandedState: [NSManagedObjectID: Bool] = [:]
+    var expandedState: [UUID: Bool] = [:]
     
     //***
 
@@ -396,28 +405,27 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     }
     
     // MARK: - 保存
+    // 保存
     private func saveExpandedState() {
         var dict: [String: Bool] = [:]
-        for (objectID, isExpanded) in expandedState {
-            dict[objectID.uriRepresentation().absoluteString] = isExpanded
+        for (uuid, isExpanded) in expandedState {
+            dict[uuid.uuidString] = isExpanded
         }
         UserDefaults.standard.set(dict, forKey: "expandedState")
     }
 
-    // MARK: - 復元
+    // 復元
     private func loadExpandedState() {
         guard let dict = UserDefaults.standard.dictionary(forKey: "expandedState") as? [String: Bool] else { return }
-        var restored: [NSManagedObjectID: Bool] = [:]
-
-        for (uriString, isExpanded) in dict {
-            if let url = URL(string: uriString),
-               let objectID = context.persistentStoreCoordinator?.managedObjectID(forURIRepresentation: url) {
-                restored[objectID] = isExpanded
+        var restored: [UUID: Bool] = [:]
+        for (uuidString, isExpanded) in dict {
+            if let uuid = UUID(uuidString: uuidString) {
+                restored[uuid] = isExpanded
             }
         }
-
         expandedState = restored
     }
+
 
     //セル表示
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -494,8 +502,8 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         guard let flatIndex = flattenedFolders.firstIndex(of: folder) else { return }
         let tableRowIndex = normalBefore.count + flatIndex
 
-        // objectID で展開状態を確認
-        let isExpanded = expandedState[folder.objectID] ?? folder.isExpanded
+        // UUID で展開状態を確認
+        let isExpanded = expandedState[folder.uuid] ?? folder.isExpanded
 
         tableView.beginUpdates()
 
@@ -512,7 +520,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             let deleteIndexPaths = deleteRange.map { IndexPath(row: normalBefore.count + $0, section: 0) }
             tableView.deleteRows(at: deleteIndexPaths, with: .fade)
 
-            expandedState[folder.objectID] = false
+            expandedState[folder.uuid] = false
             expandedFolders.remove(folder)
             folder.isExpanded = false
         } else {
@@ -535,7 +543,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             let insertIndexPaths = (0..<children.count).map { IndexPath(row: normalBefore.count + insertPosition + $0, section: 0) }
             tableView.insertRows(at: insertIndexPaths, with: .fade)
 
-            expandedState[folder.objectID] = true
+            expandedState[folder.uuid] = true
             expandedFolders.insert(folder)
             folder.isExpanded = true
         }
