@@ -357,6 +357,8 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
     // MARK: - UITableViewDataSource　データソース
 
+    //移動
+    
     // 削除・挿入ボタンを出さない
     func tableView(_ tableView: UITableView, editingStyleForRowAt indexPath: IndexPath) -> UITableViewCell.EditingStyle {
         return .none
@@ -372,6 +374,18 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         // currentSort == .order のときのみ移動可能
         return currentSort == .order
     }
+    
+    
+    func tableView(_ tableView: UITableView, moveRowAt sourceIndexPath: IndexPath, to destinationIndexPath: IndexPath) {
+        // flattenedFolders の並びを更新
+        let movedFolder = flattenedFolders.remove(at: sourceIndexPath.row)
+        flattenedFolders.insert(movedFolder, at: destinationIndexPath.row)
+        
+        // ここで必要なら CoreData の順序も更新
+    }
+    
+    //セクション
+    
 
     func numberOfSections(in tableView: UITableView) -> Int {
         return isSearching ? sortedLevels.count : 1
