@@ -315,9 +315,16 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     }
 
     private func buildVisibleFlattenedFolders() {
-        visibleFlattenedFolders = flattenedFolders.filter { isVisible($0) }
-        tableView.reloadData()
+        visibleFlattenedFolders = flattenedFolders.filter { folder in
+            var parent = folder.parent
+            while let p = parent {
+                if expandedState[p.uuid] == false { return false }
+                parent = p.parent
+            }
+            return true
+        }
     }
+
     
     func isVisible(_ folder: Folder) -> Bool {
         var parent = folder.parent
@@ -398,74 +405,43 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     
     //セル表示
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        if isSearching {
-            // 検索モード
-            let level = sortedLevels[indexPath.section]
-            guard let folders = groupedByLevel[level], indexPath.row < folders.count else {
-                return UITableViewCell()
-            }
-            let folder = folders[indexPath.row]
-            let children = (folder.children?.allObjects as? [Folder]) ?? []
+        let row = indexPath.row
+
+        if row < normalBefore.count {
+            let cell = tableView.dequeueReusableCell(withIdentifier: "Cell", for: indexPath)
+            cell.textLabel?.text = normalBefore[row]
+            return cell
+        }
+
+        let folderStartIndex = normalBefore.count
+        let folderEndIndex = folderStartIndex + visibleFlattenedFolders.count
+
+        if row >= folderStartIndex && row < folderEndIndex {
+            let folder = visibleFlattenedFolders[row - folderStartIndex]
+            let children = folder.children?.allObjects as? [Folder] ?? []
             let hasChildren = !children.isEmpty
 
             let cell = tableView.dequeueReusableCell(withIdentifier: CustomCell.reuseID, for: indexPath) as! CustomCell
             cell.configureCell(
                 name: folder.folderName ?? "無題",
                 level: Int(folder.level),
-                isExpanded: false, // 検索時は展開不可にする場合
+                isExpanded: expandedState[folder.uuid] ?? false,
                 hasChildren: hasChildren,
                 systemName: "folder",
                 tintColor: .systemBlue
             )
+            cell.chevronTapped = { [weak self] in
+                self?.toggleFolder(folder)
+            }
             return cell
-        } else {
-            // 通常モード
-            let row = indexPath.row
-            let coreDataStartIndex = normalBefore.count
-            let coreDataEndIndex = coreDataStartIndex + flattenedFolders.count
-
-            // normalBefore
-            if row < normalBefore.count {
-                let cell = tableView.dequeueReusableCell(withIdentifier: "Cell", for: indexPath)
-                cell.textLabel?.text = normalBefore[row]
-                return cell
-            }
-
-            // CoreData
-            else if row >= coreDataStartIndex && row < coreDataEndIndex {
-                let folderIndex = row - coreDataStartIndex
-                let folder = flattenedFolders[folderIndex]
-
-                // 表示されているかどうかで cell を非表示にするなら tableView(_:heightForRowAt:) で制御
-
-                let children = (folder.children?.allObjects as? [Folder]) ?? []
-                let hasChildren = !children.isEmpty
-
-                let cell = tableView.dequeueReusableCell(withIdentifier: CustomCell.reuseID, for: indexPath) as! CustomCell
-                cell.configureCell(
-                    name: folder.folderName ?? "無題",
-                    level: Int(folder.level),
-                    isExpanded: expandedState[folder.uuid] ?? folder.isExpanded,
-                    hasChildren: hasChildren,
-                    systemName: "folder",
-                    tintColor: .systemBlue
-                )
-                cell.chevronTapped = { [weak self] in
-                    self?.toggleFolder(folder)
-                }
-                return cell
-            }
-
-            // normalAfter
-            else {
-                let afterIndex = row - coreDataEndIndex
-                let cell = tableView.dequeueReusableCell(withIdentifier: "Cell", for: indexPath)
-                cell.textLabel?.text = normalAfter[afterIndex]
-                return cell
-            }
         }
+
+        let afterIndex = row - folderEndIndex
+        let cell = tableView.dequeueReusableCell(withIdentifier: "Cell", for: indexPath)
+        cell.textLabel?.text = normalAfter[afterIndex]
+        return cell
     }
-    
+
     
 
     
@@ -528,26 +504,25 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         let currently = expandedState[folder.uuid] ?? false
         expandedState[folder.uuid] = !currently
 
+        // 子孫の表示状態を更新
         if currently {
-            // 閉じる => 子孫を非表示に
             hideDescendants(of: folder)
         } else {
-            // 開く => 直下のみ表示（子孫は expandedState に従う）
             showChildren(of: folder)
         }
 
+        // visibleFlattenedFolders を再構築
+        buildVisibleFlattenedFolders()
+
+        // UserDefaults に保存
         saveExpandedState()
 
-        UIView.animate(withDuration: 0.25) {
-            self.tableView.beginUpdates()
-            self.tableView.endUpdates()
-        }
+        // tableView 更新
+        tableView.reloadData()
     }
     
 
     //
-
-    
     
     // MARK: - UITableViewDelegate　デリゲート
 
@@ -556,22 +531,20 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     //セクション数
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         if isSearching {
-            // 検索時は従来通り
             let level = sortedLevels[section]
             return groupedByLevel[level]?.count ?? 0
         } else {
-            // flattenedFolders から表示可能なものだけカウント
-            return flattenedFolders.filter { isVisible($0) }.count + normalBefore.count + normalAfter.count
+            return normalBefore.count + visibleFlattenedFolders.count + normalAfter.count
         }
     }
     
     //非表示セルは heightForRowAt で高さを0にする
-    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+    /*func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         guard indexPath.row < flattenedFolders.count else { return 0 }
         let folder = flattenedFolders[indexPath.row]
         let isVisible = visibleState[folder.uuid] ?? true
         return isVisible ? UITableView.automaticDimension : 0
-    }
+    }*/
 
     //セルタップ
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
@@ -609,7 +582,10 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             tableView.deselectRow(at: indexPath, animated: true)
         }
     }
-
+    
+    
+    
+    
     
 
     // MARK: - UISearchBarDelegate　デリゲート
