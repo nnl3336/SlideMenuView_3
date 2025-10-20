@@ -507,10 +507,11 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     }
     
     //子フォルダの可視制御
+    // MARK: - 可視制御
     func hideDescendants(of folder: Folder) {
         let children = (folder.children?.allObjects as? [Folder]) ?? []
         for child in children {
-            child.isVisible = false
+            visibleState[child.uuid] = false
             hideDescendants(of: child) // 子孫も全部非表示
         }
     }
@@ -518,7 +519,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     func showChildren(of folder: Folder) {
         let children = (folder.children?.allObjects as? [Folder]) ?? []
         for child in children {
-            child.isVisible = true
+            visibleState[child.uuid] = true
             // ただし子孫は expandedState に従う
             if expandedState[child.uuid] == true {
                 showChildren(of: child)
@@ -528,11 +529,10 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     
     //非表示セルは heightForRowAt で高さを0にする
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        guard indexPath.row < flattenedFolders.count else {
-            return 0
-        }
+        guard indexPath.row < flattenedFolders.count else { return 0 }
         let folder = flattenedFolders[indexPath.row]
-        return folder.isVisible ? UITableView.automaticDimension : 0
+        let isVisible = visibleState[folder.uuid] ?? true
+        return isVisible ? UITableView.automaticDimension : 0
     }
 
     //
@@ -541,8 +541,8 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     
     // MARK: - Toggle Folder（展開／折りたたみ）　トグル
     func toggleFolder(_ folder: Folder) {
-        let currently = visibleState[folder.uuid] ?? true
-        visibleState[folder.uuid] = !currently
+        let currently = expandedState[folder.uuid] ?? false
+        expandedState[folder.uuid] = !currently
 
         if currently {
             // 閉じる => 子孫を非表示に
@@ -552,10 +552,13 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             showChildren(of: folder)
         }
 
-        tableView.beginUpdates()
-        tableView.endUpdates()
-    }
-    
+        saveExpandedState()
+
+        UIView.animate(withDuration: 0.25) {
+            self.tableView.beginUpdates()
+            self.tableView.endUpdates()
+        }
+    }    
     
     // MARK: - UITableViewDelegate　デリゲート
 
