@@ -9,6 +9,19 @@ import SwiftUI
 
 import CoreData
 
+private var isVisibleKey: UInt8 = 0
+
+extension Folder {
+    var isVisible: Bool {
+        get {
+            (objc_getAssociatedObject(self, &isVisibleKey) as? Bool) ?? true
+        }
+        set {
+            objc_setAssociatedObject(self, &isVisibleKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        }
+    }
+}
+
 extension Dictionary {
     func mapKeys<T: Hashable>(_ transform: (Key) -> T) -> [T: Value] {
         return Dictionary<T, Value>(uniqueKeysWithValues: map { (transform($0.key), $0.value) })
