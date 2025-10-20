@@ -310,13 +310,13 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         let rootFolders = allFolders.filter { $0.parent == nil }
         flattenedFolders = flatten(nodes: rootFolders)
 
-        // 展開状態を反映して expandedFolders を初期化
-        expandedFolders.removeAll()
-        for folder in flattenedFolders {
-            if expandedState[folder.uuid] == true {
-                expandedFolders.insert(folder)
-            }
-        }
+        // 初期表示用に visibleFlattenedFolders を構築
+        buildVisibleFlattenedFolders()
+    }
+
+    private func buildVisibleFlattenedFolders() {
+        visibleFlattenedFolders = flattenedFolders.filter { isVisible($0) }
+        tableView.reloadData()
     }
     
     func isVisible(_ folder: Folder) -> Bool {
@@ -540,7 +540,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     var visibleState: [UUID: Bool] = [:]
     
     // MARK: - Toggle Folder（展開／折りたたみ）　トグル
-    func toggleFolder(_ folder: Folder) {
+    /*func toggleFolder(_ folder: Folder) {
         let currently = expandedState[folder.uuid] ?? false
         expandedState[folder.uuid] = !currently
 
@@ -558,7 +558,37 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             self.tableView.beginUpdates()
             self.tableView.endUpdates()
         }
-    }    
+    }*/
+    func toggleFolder(_ folder: Folder) {
+        let currently = expandedState[folder.uuid] ?? false
+        expandedState[folder.uuid] = !currently
+        saveExpandedState()
+        
+        // 表示用配列を更新
+        let oldVisible = visibleFlattenedFolders
+        buildVisibleFlattenedFolders()  // 新しい visibleFlattenedFolders
+        
+        // 差分を計算してアニメーション挿入/削除
+        tableView.performBatchUpdates {
+            let oldSet = Set(oldVisible)
+            let newSet = Set(visibleFlattenedFolders)
+            
+            // 削除
+            let removed = oldSet.subtracting(newSet)
+            for folder in removed {
+                if let index = oldVisible.firstIndex(of: folder) {
+                    tableView.deleteRows(at: [IndexPath(row: index + normalBefore.count, section: 0)], with: .fade)
+                }
+            }
+            // 追加
+            let added = newSet.subtracting(oldSet)
+            for folder in added {
+                if let index = visibleFlattenedFolders.firstIndex(of: folder) {
+                    tableView.insertRows(at: [IndexPath(row: index + normalBefore.count, section: 0)], with: .fade)
+                }
+            }
+        }
+    }
     
     // MARK: - UITableViewDelegate　デリゲート
 
@@ -622,8 +652,9 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     var fetchedResultsController: NSFetchedResultsController<Folder>!
 
     // 通常時: 展開ツリー
-    var flattenedFolders: [Folder] = []
-
+    var flattenedFolders: [Folder] = []                  // 全フォルダ
+    var visibleFlattenedFolders: [Folder] = []          // 表示用
+    
     // 検索時: 階層ごとの分類
     var groupedByLevel: [Int64: [Folder]] = [:]
     var sortedLevels: [Int64] = []
