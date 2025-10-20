@@ -207,13 +207,17 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                      state: currentSort == .order ? .on : .off) { [weak self] _ in
                 guard let self = self else { return }
                 self.currentSort = .order
-                UserDefaults.standard.set(self.currentSort.rawValue, forKey: "currentSort") // 確実に保存
-                self.fetchFolders()
                 
-                self.tableView.setEditing(true, animated: true)
-                self.tableView.allowsSelectionDuringEditing = true
+                // fetchFolders() は呼ばない！
+                // self.fetchFolders()
                 
-                if let button = self.sortButton { button.menu = self.makeSortMenu() }
+                // 編集モードを有効化
+                tableView.setEditing(true, animated: true)
+                tableView.allowsSelectionDuringEditing = true
+                
+                if let button = self.sortButton {
+                    button.menu = self.makeSortMenu()
+                }
             },
             
             
@@ -381,26 +385,46 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
     //移動
     
+
+    // 並び替え処理
     func tableView(_ tableView: UITableView,
                    moveRowAt sourceIndexPath: IndexPath,
                    to destinationIndexPath: IndexPath) {
-        
-        let movedFolder = flattenedFolders.remove(at: sourceIndexPath.row)
-        flattenedFolders.insert(movedFolder, at: destinationIndexPath.row)
-        
-        // CoreData の order を更新
-        for (index, folder) in flattenedFolders.enumerated() {
-            folder.sortIndex = Int64(index)  // CoreData の順番用プロパティ
+        guard currentSort == .order else { return }
+
+        let coreDataStart = normalBefore.count
+        let coreDataEnd = coreDataStart + flattenedFolders.count - 1
+
+        // CoreDataセル範囲外なら何もしない
+        if sourceIndexPath.row < coreDataStart || sourceIndexPath.row > coreDataEnd ||
+           destinationIndexPath.row < coreDataStart || destinationIndexPath.row > coreDataEnd {
+            tableView.reloadData()
+            return
         }
-        
-        // 保存
+
+        // CoreDataインデックスに変換
+        let from = sourceIndexPath.row - coreDataStart
+        let to = destinationIndexPath.row - coreDataStart
+
+        // 並べ替え処理
+        let moved = flattenedFolders.remove(at: from)
+        flattenedFolders.insert(moved, at: to)
+
+        // sortIndex更新
+        for (i, folder) in flattenedFolders.enumerated() {
+            folder.sortIndex = Int64(i)
+        }
+
+        // ✅ 保存
         do {
             try context.save()
+            print("✅ 並び順を保存しました")
         } catch {
-            print("Failed to save folder order:", error)
+            print("❌ 保存失敗: \(error)")
         }
-        
-        tableView.reloadData()
+
+        // ⚠️ 即fetchFolders()しない！
+        // save直後にフェッチし直すと順序がリセットされて見える
     }
     func saveFolderOrder() {
         for (index, folder) in flattenedFolders.enumerated() {
@@ -425,10 +449,24 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     }
 
     // 並び替えを許可
+    // 並び替え可能セルの指定
     func tableView(_ tableView: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool {
-        // currentSort == .order のときのみ移動可能
-        return currentSort == .order
+        guard currentSort == .order else { return false }
+
+        // normalBefore
+        if indexPath.row < normalBefore.count { return false }
+
+        // CoreDataセル範囲の計算
+        let coreDataStart = normalBefore.count
+        let coreDataEnd = coreDataStart + flattenedFolders.count - 1
+
+        // normalAfter
+        if indexPath.row > coreDataEnd { return false }
+
+        // CoreDataセルのみOK
+        return true
     }
+
     
     
     /*func tableView(_ tableView: UITableView, moveRowAt sourceIndexPath: IndexPath, to destinationIndexPath: IndexPath) {
