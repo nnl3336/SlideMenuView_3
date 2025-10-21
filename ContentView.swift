@@ -49,6 +49,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     //基本プロパティ
     
     private var selectedItems = Set<Folder>()
+    var isSelecting: Bool = false
     
     //***
     
@@ -60,61 +61,43 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
             guard let self = self else {
-                   return UIMenu(title: "", children: [])
-               }
-            
-            // MARK: - フォルダ追加アクション
-            let addFolder = UIAction(title: "フォルダ追加", image: UIImage(systemName: "folder.badge.plus")) { _ in
-                let alert = UIAlertController(title: "フォルダ名を入力", message: nil, preferredStyle: .alert)
-                alert.addTextField { textField in
-                    textField.placeholder = "新しいフォルダ名"
-                }
-                let addAction = UIAlertAction(title: "追加", style: .default) { _ in
-                    if let folderName = alert.textFields?.first?.text, !folderName.isEmpty {
-                        self.addChildFolder(parent: item, name: folderName)
-                    }
-                }
-                let cancelAction = UIAlertAction(title: "キャンセル", style: .cancel)
-                alert.addAction(addAction)
-                alert.addAction(cancelAction)
-                if let vc = self.presentingViewController ?? self as? UIViewController {
-                    vc.present(alert, animated: true)
-                }
+                return UIMenu(title: "", children: [])
             }
-            
-            // MARK: - 選択/トグルアクション
+
+            // フォルダ追加アクション
+            let addFolder = UIAction(title: "フォルダ追加", image: UIImage(systemName: "folder.badge.plus")) { _ in
+                self.presentAddFolderAlert(parent: item) // ← ここで呼ぶ
+            }
+
+            // 選択/トグルアクション
             let selectAction = UIAction(
                 title: self.selectedItems.contains(item) ? "選択解除" : "選択",
-                image: UIImage(systemName: self.selectedItems.contains(item) ? "checkmark.circle.fill" : "circle")
+                image: UIImage(systemName: self.selectedItems.contains(item) ? "checkmark.circle.fill" : "checkmark.circle")
             ) { _ in
                 guard let index = self.flattenedFolders.firstIndex(of: item) else { return }
                 let indexPath = IndexPath(row: index, section: 0)
-
-                // toggleSelection で selectedItems と toolbarState を統一
-                self.toggleSelection(at: indexPath, in: self.tableView)
+                self.toggleSelection(for: item, at: indexPath)
+                self.isSelecting.toggle()
             }
 
-
-            
-            // MARK: - 削除アクション
+            // 削除アクション
             let delete = UIAction(title: "削除", image: UIImage(systemName: "trash"), attributes: .destructive) { _ in
                 self.delete(item)
             }
-            
-            // MARK: - メニューにまとめる
+
             return UIMenu(title: "", children: [addFolder, selectAction, delete])
         }
     }
     // MARK: - 子フォルダ追加
-    func addChildFolder(parent: Folder?, name: String) {
+    func addChildFolder(parent: Folder, name: String) {
         let newFolder = Folder(context: context)
         newFolder.folderName = name
         newFolder.id = UUID()
         newFolder.folderMadeTime = Date()
         newFolder.currentDate = Date()
-        newFolder.sortIndex = Int64(flattenedFolders.count)
-        newFolder.level = (parent?.level ?? -1) + 1
+        newFolder.level = parent.level + 1
         newFolder.parent = parent
+        newFolder.sortIndex = Int64(parent.children?.count ?? 0)
 
         do {
             try context.save()
@@ -123,7 +106,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             print("❌ フォルダ作成エラー: \(error)")
         }
     }
-    func toggleSelection(at indexPath: IndexPath, in tableView: UITableView) {
+    /*func toggleSelection(at indexPath: IndexPath, in tableView: UITableView) {
         let item = flattenedFolders[indexPath.row]
         
         if selectedItems.contains(item) {
@@ -136,7 +119,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         if let cell = tableView.cellForRow(at: indexPath) {
             cell.accessoryType = selectedItems.contains(item) ? .checkmark : .none
         }
-    }
+    }*/
     func delete(_ item: Folder) {
         context.delete(item)
         do {
@@ -145,6 +128,34 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         } catch {
             print("❌ フォルダ削除エラー: \(error)")
         }
+    }
+    func presentAddFolderAlert(parent: Folder) {
+        let alert = UIAlertController(title: "フォルダ名を入力", message: nil, preferredStyle: .alert)
+        alert.addTextField { textField in
+            textField.placeholder = "新しいフォルダ名"
+        }
+
+        let addAction = UIAlertAction(title: "追加", style: .default) { [weak self] _ in
+            guard let self = self else { return }
+            guard let folderName = alert.textFields?.first?.text?.trimmingCharacters(in: .whitespaces), !folderName.isEmpty else {
+                self.presentWarningAlert(message: "フォルダ名を入力してください")
+                return
+            }
+            self.addChildFolder(parent: parent, name: folderName)
+        }
+
+        let cancelAction = UIAlertAction(title: "キャンセル", style: .cancel)
+
+        alert.addAction(addAction)
+        alert.addAction(cancelAction)
+
+        self.present(alert, animated: true)
+    }
+
+    func presentWarningAlert(message: String) {
+        let warning = UIAlertController(title: "無効な名前", message: message, preferredStyle: .alert)
+        warning.addAction(UIAlertAction(title: "OK", style: .default))
+        self.present(warning, animated: true)
     }
 
     
@@ -668,10 +679,12 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                     tintColor: .systemBlue
                 )
 
-                // 矢印タップのハンドリング
-                cell.chevronTapped = { [weak self, weak cell] in
-                    guard let self = self, let cell = cell else { return }
-                    self.toggleFolder(folder)
+                // ✅ 選択状態で背景色を変える
+                let isSelected = selectedFolders.contains(folder)
+                cell.updateSelectionAppearance(isSelected: isSelected)
+
+                cell.chevronTapped = { [weak self] in
+                    self?.toggleFolder(folder)
                 }
 
                 return cell
@@ -862,23 +875,29 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             // normalBefore
             print("NormalBefore tapped: \(normalBefore[row])")
             tableView.deselectRow(at: indexPath, animated: true)
+
         } else if row < coreDataEndIndex {
             // coreData
             let folderIndex = row - coreDataStartIndex
             let folder = flattenedFolders[folderIndex]
             print("CoreData folder tapped: \(folder.folderName ?? "無題")")
 
-            if isHideMode {
+            if isSelecting {
+                // 選択モード時: トグル選択
                 if selectedFolders.contains(folder) {
                     selectedFolders.remove(folder)
+                    if selectedFolders.isEmpty {
+                        self.isSelecting.toggle()
+                    }
                 } else {
                     selectedFolders.insert(folder)
                 }
                 tableView.reloadRows(at: [indexPath], with: .none)
                 updateToolbar()
             } else {
-                tableView.deselectRow(at: indexPath, animated: true)
+                // 通常タップ: フォルダを開く
             }
+
         } else {
             // normalAfter
             let afterIndex = row - coreDataEndIndex
@@ -886,7 +905,32 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             tableView.deselectRow(at: indexPath, animated: true)
         }
     }
-    
+    //選択／解除トグル
+    func toggleSelection(for folder: Folder, at indexPath: IndexPath) {
+        if selectedFolders.contains(folder) {
+            selectedFolders.remove(folder)
+            print("Removed folder: \(folder.folderName ?? "無題")")
+        } else {
+            selectedFolders.insert(folder)
+            print("Added folder: \(folder.folderName ?? "無題")")
+        }
+
+        print("Current selectedFolders count: \(selectedFolders.count)")
+
+        print("Selected folders:")
+        for f in selectedFolders {
+            print(" - \(f.folderName ?? "無題")")
+        }
+
+        // セルの背景色を更新
+        if let cell = tableView.cellForRow(at: indexPath) as? CustomCell {
+            cell.updateSelectionAppearance(isSelected: selectedFolders.contains(folder))
+        }
+
+        // ツールバーやその他 UI 更新
+        updateToolbar()
+    }
+
     
     
     

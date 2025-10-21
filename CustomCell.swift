@@ -26,6 +26,11 @@ final class CustomCell: UITableViewCell {
     }
 
     required init?(coder: NSCoder) { fatalError() }
+    
+    //色変え
+    func updateSelectionAppearance(isSelected: Bool) {
+            self.contentView.backgroundColor = isSelected ? UIColor.systemBlue.withAlphaComponent(0.2) : .systemBackground
+        }
 
     private func setupViews() {
         folderIcon.translatesAutoresizingMaskIntoConstraints = false
