@@ -44,6 +44,110 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     }
     
     //***
+    // MARK: - コンテキストメニュー　.contextMenu
+    
+    //基本プロパティ
+    
+    private var selectedItems = Set<Folder>()
+    
+    //***
+    
+    func tableView(_ tableView: UITableView,
+                   contextMenuConfigurationForRowAt indexPath: IndexPath,
+                   point: CGPoint) -> UIContextMenuConfiguration? {
+        
+        let item = flattenedFolders[indexPath.row]
+        
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+            guard let self = self else {
+                   return UIMenu(title: "", children: [])
+               }
+            
+            // MARK: - フォルダ追加アクション
+            let addFolder = UIAction(title: "フォルダ追加", image: UIImage(systemName: "folder.badge.plus")) { _ in
+                let alert = UIAlertController(title: "フォルダ名を入力", message: nil, preferredStyle: .alert)
+                alert.addTextField { textField in
+                    textField.placeholder = "新しいフォルダ名"
+                }
+                let addAction = UIAlertAction(title: "追加", style: .default) { _ in
+                    if let folderName = alert.textFields?.first?.text, !folderName.isEmpty {
+                        self.addChildFolder(parent: item, name: folderName)
+                    }
+                }
+                let cancelAction = UIAlertAction(title: "キャンセル", style: .cancel)
+                alert.addAction(addAction)
+                alert.addAction(cancelAction)
+                if let vc = self.presentingViewController ?? self as? UIViewController {
+                    vc.present(alert, animated: true)
+                }
+            }
+            
+            // MARK: - 選択/トグルアクション
+            let selectAction = UIAction(
+                title: self.selectedItems.contains(item) ? "選択解除" : "選択",
+                image: UIImage(systemName: self.selectedItems.contains(item) ? "checkmark.circle.fill" : "circle")
+            ) { _ in
+                guard let index = self.flattenedFolders.firstIndex(of: item) else { return }
+                let indexPath = IndexPath(row: index, section: 0)
+
+                // toggleSelection で selectedItems と toolbarState を統一
+                self.toggleSelection(at: indexPath, in: self.tableView)
+            }
+
+
+            
+            // MARK: - 削除アクション
+            let delete = UIAction(title: "削除", image: UIImage(systemName: "trash"), attributes: .destructive) { _ in
+                self.delete(item)
+            }
+            
+            // MARK: - メニューにまとめる
+            return UIMenu(title: "", children: [addFolder, selectAction, delete])
+        }
+    }
+    // MARK: - 子フォルダ追加
+    func addChildFolder(parent: Folder?, name: String) {
+        let newFolder = Folder(context: context)
+        newFolder.folderName = name
+        newFolder.id = UUID()
+        newFolder.folderMadeTime = Date()
+        newFolder.currentDate = Date()
+        newFolder.sortIndex = Int64(flattenedFolders.count)
+        newFolder.level = (parent?.level ?? -1) + 1
+        newFolder.parent = parent
+
+        do {
+            try context.save()
+            fetchFolders()
+        } catch {
+            print("❌ フォルダ作成エラー: \(error)")
+        }
+    }
+    func toggleSelection(at indexPath: IndexPath, in tableView: UITableView) {
+        let item = flattenedFolders[indexPath.row]
+        
+        if selectedItems.contains(item) {
+            selectedItems.remove(item)
+        } else {
+            selectedItems.insert(item)
+        }
+        
+        // セルのチェックマーク更新
+        if let cell = tableView.cellForRow(at: indexPath) {
+            cell.accessoryType = selectedItems.contains(item) ? .checkmark : .none
+        }
+    }
+    func delete(_ item: Folder) {
+        context.delete(item)
+        do {
+            try context.save()
+            fetchFolders()
+        } catch {
+            print("❌ フォルダ削除エラー: \(error)")
+        }
+    }
+
+    
     
     // MARK: - 並び替え
     private var tableView = UITableView()
