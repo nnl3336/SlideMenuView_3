@@ -59,6 +59,7 @@ extension Folder {
     }
 }
 
+/*
 extension Folder {
     /// 親をたどって階層レベルを計算
     var level: Int {
@@ -71,3 +72,4 @@ extension Folder {
         return depth
     }
 }
+*/

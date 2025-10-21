@@ -50,7 +50,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     //基本プロパティ
     private var selectedItems = Set<Folder>()
 
-    
+    //***
     
     func tableView(_ tableView: UITableView,
                    contextMenuConfigurationForRowAt indexPath: IndexPath,
@@ -71,7 +71,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                 }
                 let addAction = UIAlertAction(title: "追加", style: .default) { _ in
                     if let folderName = alert.textFields?.first?.text, !folderName.isEmpty {
-                        self.addChildFolder(to: item, name: folderName)
+                        self.addChildFolder(parent: item, name: "")
                     }
                 }
                 let cancelAction = UIAlertAction(title: "キャンセル", style: .cancel)
@@ -85,7 +85,8 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             // MARK: - 選択/トグルアクション
             let selectAction = UIAction(
                 title: self.selectedItems.contains(item) ? "選択解除" : "選択",
-                image: UIImage(systemName: self.selectedItems.contains(item) ? "checkmark.circle.fill" : "circle")
+                //image: UIImage(systemName: self.selectedItems.contains(item) ? "checkmark.circle" : "circle")
+                image: UIImage(systemName: self.selectedItems.contains(item) ? "checkmark.circle" : "circle")
             ) { _ in
                 guard let index = self.flattenedFolders.firstIndex(of: item) else { return }
                 let indexPath = IndexPath(row: index, section: 0)
@@ -106,7 +107,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         }
     }
     // MARK: - 子フォルダ追加
-    func addChildFolder(to parent: Folder
+    /*func addChildFolder(to parent: Folder
                         , name: String) {
         let newEntity = Folder(context: context)
         newEntity.folderName = name  // ここで引数 name を使う
@@ -125,7 +126,40 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         } catch {
             print("保存失敗: \(error)")
         }
+    }*/
+    // MARK: - 新規フォルダ作成
+    func addChildFolder(parent: Folder?, name: String) {
+        let newFolder = Folder(context: context)
+        newFolder.folderName = name
+        newFolder.id = UUID()
+        newFolder.folderMadeTime = Date()
+        newFolder.currentDate = Date()
+        newFolder.sortIndex = Int64((parent?.children?.count ?? 0)) // 親の子の数で sortIndex
+        newFolder.level = (parent?.level ?? -1) + 1
+        newFolder.parent = parent
+
+        do {
+            try context.save()
+            buildFlattenedFolders()
+            tableView.reloadData()
+        } catch {
+            print("❌ フォルダ作成エラー: \(error)")
+        }
     }
+
+
+
+    // MARK: - フォルダ削除
+    func deleteFolder(_ folder: Folder) {
+        context.delete(folder)
+        do {
+            try context.save()
+            fetchFolders()
+        } catch {
+            print("❌ 削除失敗: \(error)")
+        }
+    }
+
     private func toggleSelection(at indexPath: IndexPath, in tableView: UITableView) {
         let item = visibleFlattenedFolders[indexPath.row]
         
@@ -446,6 +480,23 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         flattenedFolders = flatten(nodes: rootFolders)
         buildVisibleFlattenedFolders()
     }
+    /*func buildFlattenedFolders() {
+        flattenedFolders = []
+
+        func addFolderRecursively(_ folder: Folder) {
+            flattenedFolders.append(folder)
+            if let children = folder.children?.allObjects as? [Folder] {
+                let sortedChildren = children.sorted { $0.sortIndex < $1.sortIndex }
+                sortedChildren.forEach { addFolderRecursively($0) }
+            }
+        }
+
+        // 第一階層だけ取得
+        let rootFolders = fetchedResultsController.fetchedObjects?.filter { $0.parent == nil } ?? []
+        let sortedRoot = rootFolders.sorted { $0.sortIndex < $1.sortIndex }
+        sortedRoot.forEach { addFolderRecursively($0) }
+    }*///x itemsしか表示されない
+
 
     private func buildVisibleFlattenedFolders() {
         visibleFlattenedFolders = flattenedFolders.filter { isVisible($0) }
