@@ -209,7 +209,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                 self.currentSort = .order
                 
                 // fetchFolders() は呼ばない！
-                // self.fetchFolders()
+                 self.fetchFolders()
                 
                 // 編集モードを有効化
                 tableView.setEditing(true, animated: true)
@@ -286,27 +286,15 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         let request: NSFetchRequest<Folder> = Folder.fetchRequest()
         
         // sortDescriptors を sortIndex を優先して設定
-        let sortKey: String
         switch currentSort {
         case .order:
-            sortKey = "sortIndex"
-        case .title:
-            sortKey = "folderName"
-        case .createdAt:
-            sortKey = "folderMadeTime"
-        case .currentDate:
-            sortKey = "currentDate"
-        }
-
-        if currentSort == .order {
-            // 並び替えモード order のときは sortIndex のみ
             request.sortDescriptors = [NSSortDescriptor(key: "sortIndex", ascending: ascending)]
-        } else {
-            // その他のモードのときは sortIndex を優先、さらにタイトルや日付でソート
-            request.sortDescriptors = [
-                NSSortDescriptor(key: "sortIndex", ascending: true),
-                NSSortDescriptor(key: sortKey, ascending: ascending)
-            ]
+        case .title:
+            request.sortDescriptors = [NSSortDescriptor(key: "folderName", ascending: ascending)]
+        case .createdAt:
+            request.sortDescriptors = [NSSortDescriptor(key: "folderMadeTime", ascending: ascending)]
+        case .currentDate:
+            request.sortDescriptors = [NSSortDescriptor(key: "currentDate", ascending: ascending)]
         }
 
         if let predicate = predicate {
@@ -348,7 +336,14 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
     private func buildFlattenedFolders() {
         guard let allFolders = fetchedResultsController.fetchedObjects else { return }
-        let rootFolders = allFolders.filter { $0.parent == nil }
+
+        var rootFolders = allFolders.filter { $0.parent == nil }
+
+        if currentSort == .order {
+            // order モードのときは sortIndex で並び替え
+            rootFolders.sort { ($0.sortIndex) < ($1.sortIndex) }
+        }
+
         flattenedFolders = flatten(nodes: rootFolders)
         buildVisibleFlattenedFolders()
     }
