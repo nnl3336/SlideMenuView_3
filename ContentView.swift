@@ -38,17 +38,105 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         // 取得後に展開状態を反映して flattenedFolders を作る
         buildFlattenedFolders()
         
+        //***ツールバー
+        //showBottomToolbar() // MARK: - 下部ツールバー表示
+        
+        setupToolbar()
+        updateToolbar()
+        
         // テーブルビューをリロード
         tableView.reloadData()
         
     }
     
     //***
+    
+    // MARK: - ツールバー
+    
+    private func setupToolbar() {
+        bottomToolbar.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(bottomToolbar)
+        
+        NSLayoutConstraint.activate([
+            bottomToolbar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bottomToolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            bottomToolbar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+            bottomToolbar.heightAnchor.constraint(equalToConstant: 44)
+        ])
+    }
+    
+    private func updateToolbar() {
+            switch bottomToolbarState {
+            case .normal:
+                bottomToolbar.isHidden = false
+                let edit = UIBarButtonItem(barButtonSystemItem: .edit, target: self, action: #selector(startEditing))
+                bottomToolbar.setItems([edit], animated: false)
+
+            case .editing:
+                bottomToolbar.isHidden = false
+                let edit = UIBarButtonItem(barButtonSystemItem: .cancel, target: self, action: #selector(editCancelEdit))
+                bottomToolbar.setItems([edit], animated: false)
+
+            case .selecting:
+                bottomToolbar.isHidden = false
+                let cancel = UIBarButtonItem(barButtonSystemItem: .cancel, target: self, action: #selector(selectCancelEdit))
+
+                if selectedFolders.isEmpty {
+                    // 選択なし → Cancel だけ
+                    bottomToolbar.setItems([cancel], animated: false)
+                } else {
+                    // 選択あり → Cancel + Transfer
+                    let transfer = UIBarButtonItem(title: "Transfer", style: .plain, target: self, action: #selector(transferItems))
+                    bottomToolbar.setItems([cancel, UIBarButtonItem.flexibleSpace(), transfer], animated: false)
+                }
+            }
+        }
+
+    // MARK: - Actions
+    @objc private func startEditing() {
+        bottomToolbarState = .editing
+        isHideMode = true
+        tableView.reloadData() // ←ここが重要
+    }
+
+
+    @objc private func selectCancelEdit() {
+        isSelecting = false
+        // 選択アイテムをクリア
+        //selectedItems.removeAll()
+        selectedFolders.removeAll()
+        
+        // bottomToolbarState を通常に戻す
+        bottomToolbarState = .normal
+        
+        // テーブルの選択状態もリセット
+        tableView.reloadData()
+        
+        // ツールバーを更新
+        updateToolbar()
+    }
+
+
+    @objc private func editCancelEdit() {
+        isHideMode = false
+        // 選択アイテムをクリア
+        //selectedItems.removeAll()
+        selectedFolders.removeAll()
+        
+        // bottomToolbarState を通常に戻す
+        bottomToolbarState = .normal
+        
+        // テーブルの選択状態もリセット
+        tableView.reloadData()
+        
+        // ツールバーを更新
+        updateToolbar()
+    }
     // MARK: - コンテキストメニュー　.contextMenu
     
     //基本プロパティ
     
-    private var selectedItems = Set<Folder>()
+    //private var selectedItems = Set<Folder>()
     var isSelecting: Bool = false
     
     //***
@@ -71,13 +159,16 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
             // 選択/トグルアクション
             let selectAction = UIAction(
-                title: self.selectedItems.contains(item) ? "選択解除" : "選択",
-                image: UIImage(systemName: self.selectedItems.contains(item) ? "checkmark.circle.fill" : "checkmark.circle")
+                title: self.selectedFolders.contains(item) ? "選択解除" : "選択",
+                image: UIImage(systemName: self.selectedFolders.contains(item) ? "checkmark.circle.fill" : "checkmark.circle")
             ) { _ in
                 guard let index = self.flattenedFolders.firstIndex(of: item) else { return }
                 let indexPath = IndexPath(row: index, section: 0)
                 self.toggleSelection(for: item, at: indexPath)
                 self.isSelecting.toggle()
+                self.bottomToolbarState = .selecting
+                
+                self.updateToolbar()
             }
 
             // 削除アクション
@@ -161,6 +252,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     
     
     // MARK: - 並び替え
+    
     private var tableView = UITableView()
     private var searchBar = UISearchBar()
     private var sortButton: UIButton!
@@ -213,65 +305,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     var isHideMode = false // ← トグルで切り替え
     
     ///***
-    
-    private func updateToolbar() {
-        switch bottomToolbarState {
-        case .normal:
-            bottomToolbar.isHidden = false
-            let edit = UIBarButtonItem(barButtonSystemItem: .edit, target: self, action: #selector(startEditing))
-            bottomToolbar.setItems([edit], animated: false)
-            
-        case .selecting:
-            bottomToolbar.isHidden = false
-            let cancel = UIBarButtonItem(barButtonSystemItem: .cancel, target: self, action: #selector(editCancelEdit))
-            bottomToolbar.setItems([cancel], animated: false)
-            
-        case .editing:
-            bottomToolbar.isHidden = false
-            let cancel = UIBarButtonItem(barButtonSystemItem: .cancel, target: self, action: #selector(selectCancelEdit))
-            if selectedFolders.isEmpty {
-                bottomToolbar.setItems([cancel], animated: false)
-            } else {
-                let transfer = UIBarButtonItem(title: "Transfer", style: .plain, target: self, action: #selector(transferItems))
-                bottomToolbar.setItems([cancel, UIBarButtonItem.flexibleSpace(), transfer], animated: false)
-            }
-        }
-    }
-    // MARK: - Actions
-    @objc private func startEditing() {
-        bottomToolbarState = .selecting
-        isHideMode = true
-        
-        tableView.setEditing(true, animated: true)  // ← 編集モードに切り替え
-        tableView.reloadData()
-    }
-    @objc private func editCancelEdit() {
-        isHideMode = false
-        // 選択アイテムをクリア
-        selectedFolders.removeAll()
-        
-        // bottomToolbarState を通常に戻す
-        bottomToolbarState = .normal
-        
-        // テーブルの選択状態もリセット
-        tableView.reloadData()
-        
-        // ツールバーを更新
-        updateToolbar()
-    }
-    @objc private func selectCancelEdit() {
-        // 選択アイテムをクリア
-        selectedFolders.removeAll()
-        
-        // bottomToolbarState を通常に戻す
-        bottomToolbarState = .normal
-        
-        // テーブルの選択状態もリセット
-        tableView.reloadData()
-        
-        // ツールバーを更新
-        updateToolbar()
-    }
+    ///
     @objc private func transferItems() {
         // 選択アイテムの転送処理
         //delegate?.didToggleBool_TransferModal(true)
