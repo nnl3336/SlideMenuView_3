@@ -51,6 +51,49 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     
     //***
     
+    // MARK: - スワイプアクション
+    
+    func tableView(_ tableView: UITableView,
+                   trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+
+        let row = indexPath.row
+        let coreDataStartIndex = normalBefore.count
+        let coreDataEndIndex = coreDataStartIndex + flattenedFolders.count
+
+        guard row >= coreDataStartIndex, row < coreDataEndIndex else { return nil }
+
+        let folderIndex = row - coreDataStartIndex
+        let folder = flattenedFolders[folderIndex]
+
+        // 非表示アクション
+        let hideAction = UIContextualAction(style: .normal, title: "非表示") { [weak self] action, view, completion in
+            guard let self = self else { return }
+            
+            let folder = self.flattenedFolders[indexPath.row - self.normalBefore.count]
+            folder.isHide = true
+            
+            // セルを非表示にする
+            self.tableView.reloadData()
+            
+            completion(true)
+        }
+        hideAction.backgroundColor = .systemGray
+
+        // 削除アクション
+        let deleteAction = UIContextualAction(style: .destructive, title: "削除") { [weak self] action, view, completion in
+            guard let self = self else { return }
+            self.flattenedFolders.remove(at: folderIndex)
+            self.selectedFolders.remove(folder)
+            tableView.deleteRows(at: [indexPath], with: .automatic)
+            completion(true)
+        }
+
+        let configuration = UISwipeActionsConfiguration(actions: [deleteAction, hideAction])
+        configuration.performsFirstActionWithFullSwipe = false
+        return configuration
+    }
+
+    
     // MARK: - ツールバー
     
     private func setupToolbar() {
@@ -64,6 +107,8 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             bottomToolbar.heightAnchor.constraint(equalToConstant: 44)
         ])
     }
+    
+    // MARK: - ツールバー　アップデート
     
     private func updateToolbar() {
             switch bottomToolbarState {
@@ -99,7 +144,6 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         tableView.reloadData() // ←ここが重要
     }
 
-
     @objc private func selectCancelEdit() {
         isSelecting = false
         // 選択アイテムをクリア
@@ -132,6 +176,9 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         // ツールバーを更新
         updateToolbar()
     }
+    
+    
+    
     // MARK: - コンテキストメニュー　.contextMenu
     
     //基本プロパティ
@@ -164,10 +211,19 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             ) { _ in
                 guard let index = self.flattenedFolders.firstIndex(of: item) else { return }
                 let indexPath = IndexPath(row: index, section: 0)
-                self.toggleSelection(for: item, at: indexPath)
-                self.isSelecting.toggle()
+
+                if self.selectedFolders.contains(item) {
+                    // 選択解除
+                    self.selectedFolders.remove(item)
+                    tableView.deselectRow(at: indexPath, animated: true)
+                } else {
+                    // 選択
+                    self.selectedFolders.insert(item)
+                    tableView.selectRow(at: indexPath, animated: true, scrollPosition: .none)
+                }
+
+                self.isSelecting = true
                 self.bottomToolbarState = .selecting
-                
                 self.updateToolbar()
             }
 
@@ -293,7 +349,11 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         }
     }
 
-    var selectedFolders: Set<Folder> = []
+    var selectedFolders: Set<Folder> = [] {
+        didSet {
+            
+        }
+    }
     var bottomToolbarState: BottomToolbarState = .normal {
         didSet { updateToolbar() }
     }
@@ -682,7 +742,9 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                 isExpanded: isExpanded,
                 hasChildren: hasChildren,
                 systemName: "folder",
-                tintColor: .systemBlue
+                tintColor: .systemBlue,
+                isEditMode: isHideMode,      // 編集モードかどうか
+                isHide: folder.isHide         // フォルダの非表示状態
             )
             return cell
         } else {
@@ -710,7 +772,9 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                     isExpanded: isExpanded,
                     hasChildren: hasChildren,
                     systemName: "folder",
-                    tintColor: .systemBlue
+                    tintColor: .systemBlue,
+                    isEditMode: isHideMode,      // 編集モードかどうか
+                    isHide: folder.isHide         // フォルダの非表示状態
                 )
 
                 // ✅ 選択状態で背景色を変える
@@ -907,27 +971,32 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
         if row < normalBefore.count {
             // normalBefore
-            print("NormalBefore tapped: \(normalBefore[row])")
+            //print("NormalBefore tapped: \(normalBefore[row])")
             tableView.deselectRow(at: indexPath, animated: true)
 
         } else if row < coreDataEndIndex {
             // coreData
             let folderIndex = row - coreDataStartIndex
             let folder = flattenedFolders[folderIndex]
-            print("CoreData folder tapped: \(folder.folderName ?? "無題")")
+            //print("CoreData folder tapped: \(folder.folderName ?? "無題")")
 
             if isSelecting {
                 // 選択モード時: トグル選択
                 if selectedFolders.contains(folder) {
                     selectedFolders.remove(folder)
                     if selectedFolders.isEmpty {
-                        self.isSelecting.toggle()
+                        self.isSelecting = false
+                        bottomToolbarState = .normal
                     }
+                    print("Removed folder: \(folder)")
                 } else {
                     selectedFolders.insert(folder)
+                    print("Added folder: \(folder)")
                 }
+                
                 tableView.reloadRows(at: [indexPath], with: .none)
                 updateToolbar()
+                
             } else {
                 // 通常タップ: フォルダを開く
             }
@@ -944,6 +1013,10 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         if selectedFolders.contains(folder) {
             selectedFolders.remove(folder)
             print("Removed folder: \(folder.folderName ?? "無題")")
+            if selectedFolders.isEmpty {
+                self.isSelecting = false
+                self.bottomToolbarState = .normal
+            }
         } else {
             selectedFolders.insert(folder)
             print("Added folder: \(folder.folderName ?? "無題")")
