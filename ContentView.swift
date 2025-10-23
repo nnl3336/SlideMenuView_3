@@ -25,21 +25,19 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
-        fetchFolders()
-        setupSearchAndSortHeader()
-        // 通常セル用
-        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "Cell")
         
-        // カスタムセル用
-        tableView.register(CustomCell.self, forCellReuseIdentifier: CustomCell.reuseID)
+        fetchFolders()
+        
+        setupSearchAndSortHeader()
+        
         
         loadExpandedState()
         
         // 取得後に展開状態を反映して flattenedFolders を作る
         buildFlattenedFolders()
         
-        //***ツールバー
-        //showBottomToolbar() // MARK: - 下部ツールバー表示
+        //***
+        //showBottomToolbar() // MARK: - 下部表示
         
         setupToolbar()
         updateToolbar()
@@ -52,39 +50,48 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     //***
     
     // MARK: - スワイプアクション
-    
+
     func tableView(_ tableView: UITableView,
                    trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
 
-        let row = indexPath.row
-        let coreDataStartIndex = normalBefore.count
-        let coreDataEndIndex = coreDataStartIndex + flattenedFolders.count
-
-        guard row >= coreDataStartIndex, row < coreDataEndIndex else { return nil }
-
-        let folderIndex = row - coreDataStartIndex
-        let folder = flattenedFolders[folderIndex]
+        let folder = flattenedFolders[indexPath.row]
 
         // 非表示アクション
         let hideAction = UIContextualAction(style: .normal, title: "非表示") { [weak self] action, view, completion in
             guard let self = self else { return }
-            
-            let folder = self.flattenedFolders[indexPath.row - self.normalBefore.count]
+
+            // indexPath の安全確認
+            guard indexPath.row < self.flattenedFolders.count else {
+                completion(false)
+                return
+            }
+
+            let folder = self.flattenedFolders[indexPath.row]
             folder.isHide = true
-            
-            // セルを非表示にする
-            self.tableView.reloadData()
-            
-            completion(true)
+
+            self.flattenedFolders.removeAll { $0.isHide }
+
+            // UITableView の更新
+            self.tableView.performBatchUpdates {
+                self.tableView.deleteRows(at: [indexPath], with: .automatic)
+            } completion: { _ in
+                completion(true)
+            }
         }
         hideAction.backgroundColor = .systemGray
 
         // 削除アクション
         let deleteAction = UIContextualAction(style: .destructive, title: "削除") { [weak self] action, view, completion in
             guard let self = self else { return }
-            self.flattenedFolders.remove(at: folderIndex)
-            self.selectedFolders.remove(folder)
+
+            
+            if let index = self.flattenedFolders.firstIndex(of: folder) {
+                self.flattenedFolders.remove(at: index)
+            }
+
+            // TableView更新
             tableView.deleteRows(at: [indexPath], with: .automatic)
+
             completion(true)
         }
 
@@ -92,6 +99,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         configuration.performsFirstActionWithFullSwipe = false
         return configuration
     }
+
 
     
     // MARK: - ツールバー
@@ -108,7 +116,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         ])
     }
     
-    // MARK: - ツールバー　アップデート
+    // MARK: - アップデート
     
     private func updateToolbar() {
             switch bottomToolbarState {
@@ -137,7 +145,8 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             }
         }
 
-    // MARK: - Actions
+    //Actions
+    
     @objc private func startEditing() {
         bottomToolbarState = .editing
         isHideMode = true
@@ -156,10 +165,9 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         // テーブルの選択状態もリセット
         tableView.reloadData()
         
-        // ツールバーを更新
+        //
         updateToolbar()
     }
-
 
     @objc private func editCancelEdit() {
         isHideMode = false
@@ -173,7 +181,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         // テーブルの選択状態もリセット
         tableView.reloadData()
         
-        // ツールバーを更新
+        //
         updateToolbar()
     }
     
@@ -307,7 +315,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
     
     
-    // MARK: - 並び替え
+    // MARK: - //並び替え
     
     private var tableView = UITableView()
     private var searchBar = UISearchBar()
@@ -365,6 +373,86 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     var isHideMode = false // ← トグルで切り替え
     
     ///***
+    
+    // 削除・挿入ボタンを出さない
+    func tableView(_ tableView: UITableView, editingStyleForRowAt indexPath: IndexPath) -> UITableViewCell.EditingStyle {
+        return .none
+    }
+
+    // ハンドルを出すかどうか
+    func tableView(_ tableView: UITableView, shouldIndentWhileEditingRowAt indexPath: IndexPath) -> Bool {
+        return false // インデント不要
+    }
+
+    // 並び替えを許可
+    // 並び替え可能セルの指定
+    func tableView(_ tableView: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool {
+        guard currentSort == .order else { return false }
+
+        // normalBefore
+        if indexPath.row < normalBefore.count { return false }
+
+        // CoreDataセル範囲の計算
+        let coreDataStart = normalBefore.count
+        let coreDataEnd = coreDataStart + flattenedFolders.count - 1
+
+        // normalAfter
+        if indexPath.row > coreDataEnd { return false }
+
+        // CoreDataセルのみOK
+        return true
+    }
+    // 並び替え処理
+    func tableView(_ tableView: UITableView,
+                   moveRowAt sourceIndexPath: IndexPath,
+                   to destinationIndexPath: IndexPath) {
+        guard currentSort == .order else { return }
+
+        let coreDataStart = normalBefore.count
+        let coreDataEnd = coreDataStart + flattenedFolders.count - 1
+
+        // CoreDataセル範囲外なら何もしない
+        if sourceIndexPath.row < coreDataStart || sourceIndexPath.row > coreDataEnd ||
+           destinationIndexPath.row < coreDataStart || destinationIndexPath.row > coreDataEnd {
+            tableView.reloadData()
+            return
+        }
+
+        // CoreDataインデックスに変換
+        let from = sourceIndexPath.row - coreDataStart
+        let to = destinationIndexPath.row - coreDataStart
+
+        // 並べ替え処理
+        let moved = flattenedFolders.remove(at: from)
+        flattenedFolders.insert(moved, at: to)
+
+        // sortIndex更新
+        for (i, folder) in flattenedFolders.enumerated() {
+            folder.sortIndex = Int64(i)
+        }
+
+        // ✅ 保存
+        do {
+            try context.save()
+            print("✅ 並び順を保存しました")
+        } catch {
+            print("❌ 保存失敗: \(error)")
+        }
+
+        // ⚠️ 即fetchFolders()しない！
+        // save直後にフェッチし直すと順序がリセットされて見える
+    }
+    func saveFolderOrder() {
+        for (index, folder) in flattenedFolders.enumerated() {
+            folder.sortIndex = Int64(index)  // CoreData の順番用プロパティ
+        }
+        
+        do {
+            try context.save()
+        } catch {
+            print("Failed to save folder order:", error)
+        }
+    }
     ///
     @objc private func transferItems() {
         // 選択アイテムの転送処理
@@ -376,12 +464,13 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         // テーブルの選択状態もリセット
         tableView.reloadData()
         
-        // ツールバーを通常に戻す
+        // 通常に戻す
         bottomToolbarState = .normal
         updateToolbar()
     }
     
-    // MARK: - 並べ替えメニュー生成
+    //並べ替えメニュー生成
+    
     func makeSortMenu() -> UIMenu {
         return UIMenu(title: "並び替え", children: [
             UIAction(title: "作成日", image: UIImage(systemName: "calendar"),
@@ -440,6 +529,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         ])
     }
     
+    //ナビゲーションバー
     private func setupSearchAndSortHeader() {
         sortButton = UIButton(type: .system)
         sortButton.setTitle("並び替え", for: .normal)
@@ -470,6 +560,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     }
 
     // MARK: - UIセットアップ
+    
     private func setupUI() {
         view.backgroundColor = .systemBackground
 
@@ -487,6 +578,10 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         view.addSubview(tableView)
         
         //tableView.register(CustomCell.self, forCellReuseIdentifier: CustomCell.reuseID)
+        // 通常セル用
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "Cell")
+        // カスタムセル用
+        tableView.register(CustomCell.self, forCellReuseIdentifier: CustomCell.reuseID)
     }
 
     // MARK: - Fetch　frc
@@ -508,7 +603,6 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         }
 
         if currentSort == .order {
-            // 並び替えモード order のときは sortIndex のみ
             request.sortDescriptors = [NSSortDescriptor(key: "sortIndex", ascending: ascending)]
         } else {
             // その他のモードのときは sortIndex を優先、さらにタイトルや日付でソート
@@ -606,92 +700,13 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     //***デフォルトfunc
 
     // MARK: - UITableViewDataSource　データソース
+    
+    //基本プロパティ
+    
+    let normalBefore = ["Apple", "Orange"]
+    let normalAfter = ["Banana"]
 
     //移動
-    
-
-    // 並び替え処理
-    func tableView(_ tableView: UITableView,
-                   moveRowAt sourceIndexPath: IndexPath,
-                   to destinationIndexPath: IndexPath) {
-        guard currentSort == .order else { return }
-
-        let coreDataStart = normalBefore.count
-        let coreDataEnd = coreDataStart + flattenedFolders.count - 1
-
-        // CoreDataセル範囲外なら何もしない
-        if sourceIndexPath.row < coreDataStart || sourceIndexPath.row > coreDataEnd ||
-           destinationIndexPath.row < coreDataStart || destinationIndexPath.row > coreDataEnd {
-            tableView.reloadData()
-            return
-        }
-
-        // CoreDataインデックスに変換
-        let from = sourceIndexPath.row - coreDataStart
-        let to = destinationIndexPath.row - coreDataStart
-
-        // 並べ替え処理
-        let moved = flattenedFolders.remove(at: from)
-        flattenedFolders.insert(moved, at: to)
-
-        // sortIndex更新
-        for (i, folder) in flattenedFolders.enumerated() {
-            folder.sortIndex = Int64(i)
-        }
-
-        // ✅ 保存
-        do {
-            try context.save()
-            print("✅ 並び順を保存しました")
-        } catch {
-            print("❌ 保存失敗: \(error)")
-        }
-
-        // ⚠️ 即fetchFolders()しない！
-        // save直後にフェッチし直すと順序がリセットされて見える
-    }
-    func saveFolderOrder() {
-        for (index, folder) in flattenedFolders.enumerated() {
-            folder.sortIndex = Int64(index)  // CoreData の順番用プロパティ
-        }
-        
-        do {
-            try context.save()
-        } catch {
-            print("Failed to save folder order:", error)
-        }
-    }
-    
-    // 削除・挿入ボタンを出さない
-    func tableView(_ tableView: UITableView, editingStyleForRowAt indexPath: IndexPath) -> UITableViewCell.EditingStyle {
-        return .none
-    }
-
-    // ハンドルを出すかどうか
-    func tableView(_ tableView: UITableView, shouldIndentWhileEditingRowAt indexPath: IndexPath) -> Bool {
-        return false // インデント不要
-    }
-
-    // 並び替えを許可
-    // 並び替え可能セルの指定
-    func tableView(_ tableView: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool {
-        guard currentSort == .order else { return false }
-
-        // normalBefore
-        if indexPath.row < normalBefore.count { return false }
-
-        // CoreDataセル範囲の計算
-        let coreDataStart = normalBefore.count
-        let coreDataEnd = coreDataStart + flattenedFolders.count - 1
-
-        // normalAfter
-        if indexPath.row > coreDataEnd { return false }
-
-        // CoreDataセルのみOK
-        return true
-    }
-
-    
     
     /*func tableView(_ tableView: UITableView, moveRowAt sourceIndexPath: IndexPath, to destinationIndexPath: IndexPath) {
         // flattenedFolders の並びを更新
@@ -703,11 +718,12 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     
     //セクション
     
-
+    //セクション数
     func numberOfSections(in tableView: UITableView) -> Int {
         return isSearching ? sortedLevels.count : 1
     }
-
+    
+    //セクションヘッダー
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         if isSearching {
             let level = sortedLevels[section]
@@ -716,12 +732,6 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             return nil
         }
     }
-    
-    
-    
-    let normalBefore = ["Apple", "Orange"]
-    let normalAfter = ["Banana"]
-
 
     //セル表示
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -794,9 +804,6 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             return cell
         }
     }
-    
-
-    
     
     // MARK: - 開閉
     
@@ -935,15 +942,13 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         return result
     }
 
-    
-
     //
     
-    // MARK: - UITableViewDelegate　デリゲート
+    // MARK: - //UITableViewDelegate　//デリゲート
 
     var sections: [SectionType] = [.normalBefore, .coreData, .normalAfter]
     
-    //セクション数
+    //セル個数
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         if isSearching {
             let level = sortedLevels[section]
@@ -1034,17 +1039,9 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             cell.updateSelectionAppearance(isSelected: selectedFolders.contains(folder))
         }
 
-        // ツールバーやその他 UI 更新
+        // その他 UI 更新
         updateToolbar()
     }
-
-    
-    
-    
-    
-
-    // MARK: - UISearchBarDelegate　デリゲート
-
     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
         if searchText.isEmpty {
             isSearching = false
@@ -1055,6 +1052,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             fetchFolders(predicate: predicate)
         }
     }
+    
     //***基本プロパティ
     
     var context: NSManagedObjectContext!
