@@ -26,12 +26,13 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         super.viewDidLoad()
         setupUI()
         
+        loadExpandedState()
+        
         fetchFolders()
         
         setupSearchAndSortHeader()
         
         
-        loadExpandedState()
         
         // 取得後に展開状態を反映して flattenedFolders を作る
         buildFlattenedFolders()
@@ -656,9 +657,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         buildVisibleFlattenedFolders()
     }
 
-    private func buildVisibleFlattenedFolders() {
-        visibleFlattenedFolders = flattenedFolders.filter { isVisible($0) }
-    }
+    
 
     func isVisible(_ folder: Folder) -> Bool {
         var parent = folder.parent
@@ -672,29 +671,58 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     //flatten
     
     // MARK: - Flatten（再帰展開）the flatten
+    // MARK: - Flatten
     private func flatten(nodes: [Folder]) -> [Folder] {
         var result: [Folder] = []
 
-        let sortedNodes: [Folder]
-        switch currentSort {
-        case .order:
-            sortedNodes = nodes.sorted { ascending ? $0.sortIndex < $1.sortIndex : $0.sortIndex > $1.sortIndex }
-        case .title:
-            sortedNodes = nodes.sorted { ascending ? ($0.folderName ?? "") < ($1.folderName ?? "") : ($0.folderName ?? "") > ($1.folderName ?? "") }
-        case .createdAt:
-            sortedNodes = nodes.sorted { ascending ? ($0.folderMadeTime ?? Date.distantPast) < ($1.folderMadeTime ?? Date.distantPast) : ($0.folderMadeTime ?? Date.distantPast) > ($1.folderMadeTime ?? Date.distantPast) }
-        case .currentDate:
-            sortedNodes = nodes.sorted { ascending ? ($0.currentDate ?? Date.distantPast) < ($1.currentDate ?? Date.distantPast) : ($0.currentDate ?? Date.distantPast) > ($1.currentDate ?? Date.distantPast) }
-        }
-
+        let sortedNodes = nodes.sorted(by: sortClosure)
+        
         for node in sortedNodes {
             result.append(node)
-            if expandedState[node.uuid] == true, let children = node.children as? Set<Folder> {
-                let childrenSorted = flatten(nodes: Array(children))
-                result.append(contentsOf: childrenSorted)
+            
+            if expandedState[node.uuid] == true, let children = node.children as? Set<Folder>, !children.isEmpty {
+                let childrenFlattened = flatten(nodes: Array(children))
+                result.append(contentsOf: childrenFlattened)
             }
         }
         return result
+    }
+
+    // MARK: - Sort closure
+    private var sortClosure: (Folder, Folder) -> Bool {
+        return { [self] lhs, rhs in  // selfをキャプチャ
+            switch self.currentSort {
+            case .order:
+                return self.ascending ? lhs.sortIndex < rhs.sortIndex : lhs.sortIndex > rhs.sortIndex
+            case .title:
+                return self.ascending ? (lhs.folderName ?? "") < (rhs.folderName ?? "") : (lhs.folderName ?? "") > (rhs.folderName ?? "")
+            case .createdAt:
+                return self.ascending ? (lhs.folderMadeTime ?? Date.distantPast) < (rhs.folderMadeTime ?? Date.distantPast) : (lhs.folderMadeTime ?? Date.distantPast) > (rhs.folderMadeTime ?? Date.distantPast)
+            case .currentDate:
+                return self.ascending ? (lhs.currentDate ?? Date.distantPast) < (rhs.currentDate ?? Date.distantPast) : (lhs.currentDate ?? Date.distantPast) > (rhs.currentDate ?? Date.distantPast)
+            }
+        }
+    }
+
+    // MARK: - Visible array 更新
+    private func buildVisibleFlattenedFolders() {
+        if isSearching, let keywords = searchBar.text, !keywords.isEmpty {
+            // 検索フィルターを適用
+            visibleFlattenedFolders = flattenedFolders.filter { folder in
+                folder.folderName?.localizedCaseInsensitiveContains(keywords) ?? false
+            }
+        } else {
+            visibleFlattenedFolders = flattenedFolders
+        }
+        tableView.reloadData()
+    }
+
+    // MARK: - 削除/非表示後に呼ぶ
+    private func refreshAfterChange() {
+        guard let allFolders = fetchedResultsController.fetchedObjects else { return }
+        let rootFolders = allFolders.filter { $0.parent == nil }
+        flattenedFolders = flatten(nodes: rootFolders)
+        buildVisibleFlattenedFolders()
     }
 
     //***デフォルトfunc
