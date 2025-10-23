@@ -55,7 +55,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     func tableView(_ tableView: UITableView,
                    trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
 
-        let folder = flattenedFolders[indexPath.row]
+        let folder = visibleFlattenedFolders[indexPath.row]
 
         // 非表示アクション
         let hideAction = UIContextualAction(style: .normal, title: "非表示") { [weak self] action, view, completion in
@@ -86,9 +86,23 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             guard let self = self else { return }
 
             
-            if let index = self.flattenedFolders.firstIndex(of: folder) {
-                self.flattenedFolders.remove(at: index)
+            let folderTuple = visibleFlattenedFolders[indexPath.row]
+            let folder = folderTuple.folder
+
+            // 1. 配列から削除
+            if let index = self.visibleFlattenedFolders.firstIndex(where: { $0.folder.uuid == folder.uuid }) {
+                visibleFlattenedFolders.remove(at: index)
             }
+
+            // 2. TableView の行を削除（必ず配列削除の直後）
+            tableView.performBatchUpdates {
+                tableView.deleteRows(at: [indexPath], with: .automatic)
+            } completion: { _ in
+                completion(true)
+            }
+
+
+
 
             // TableView更新
             tableView.deleteRows(at: [indexPath], with: .automatic)

@@ -15,14 +15,19 @@ final class CustomCell: UITableViewCell {
     let titleLabel = UILabel()
     let chevronIcon = UIImageView()
     private var leadingConstraint: NSLayoutConstraint!
-
-    // --- 新規追加 ---
+    
+    // スイッチ
     let hideSwitch = UISwitch()
-    var switchChanged: ((Bool) -> Void)?  // 値変更時のコールバック
+    var switchChanged: ((Bool) -> Void)?
 
+    // chevron タップ用
     var chevronTapped: (() -> Void)?
     private var level: Int = 0
     private var hasChildren: Bool = false
+
+    // trailing 制約を2種類用意
+    private var chevronToSwitchConstraint: NSLayoutConstraint!
+    private var chevronToContentConstraint: NSLayoutConstraint!
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -43,18 +48,24 @@ final class CustomCell: UITableViewCell {
         chevronIcon.contentMode = .scaleAspectFit
         chevronIcon.tintColor = .systemGray
         chevronIcon.isUserInteractionEnabled = true
+        chevronIcon.image = UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate)
         let tap = UITapGestureRecognizer(target: self, action: #selector(chevronTappedAction))
         chevronIcon.addGestureRecognizer(tap)
 
         hideSwitch.translatesAutoresizingMaskIntoConstraints = false
-        hideSwitch.isHidden = true // デフォルトは非表示
+        hideSwitch.addTarget(self, action: #selector(switchToggled), for: .valueChanged)
 
         contentView.addSubview(folderIcon)
         contentView.addSubview(titleLabel)
         contentView.addSubview(chevronIcon)
-        contentView.addSubview(hideSwitch) // 追加
+        contentView.addSubview(hideSwitch)
 
         leadingConstraint = folderIcon.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16)
+
+        // chevron の制約
+        chevronToSwitchConstraint = chevronIcon.trailingAnchor.constraint(equalTo: hideSwitch.leadingAnchor, constant: -8)
+        chevronToContentConstraint = chevronIcon.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16)
+
         NSLayoutConstraint.activate([
             leadingConstraint,
             folderIcon.widthAnchor.constraint(equalToConstant: 32),
@@ -66,31 +77,23 @@ final class CustomCell: UITableViewCell {
             titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 10),
             titleLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -10),
 
-            chevronIcon.trailingAnchor.constraint(equalTo: hideSwitch.leadingAnchor, constant: -8),
-            chevronIcon.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             chevronIcon.widthAnchor.constraint(equalToConstant: 20),
             chevronIcon.heightAnchor.constraint(equalToConstant: 20),
+            chevronIcon.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
 
             hideSwitch.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
             hideSwitch.centerYAnchor.constraint(equalTo: contentView.centerYAnchor)
         ])
+        
+        // 初期は chevron→content
+        chevronToContentConstraint.isActive = true
 
         titleLabel.numberOfLines = 0
     }
 
-    @objc private func chevronTappedAction() {
-        chevronTapped?()
-    }
-    
-    // MARK: -　isHideスイッチ
-    
-    @objc private func switchToggled() {
-        switchChanged?(hideSwitch.isOn)
-    }
+    @objc private func chevronTappedAction() { chevronTapped?() }
+    @objc private func switchToggled() { switchChanged?(hideSwitch.isOn) }
 
-    //
-
-    // --- 新規: 編集モード用 configure ---
     func configureCell(
         name: String,
         level: Int,
@@ -110,28 +113,31 @@ final class CustomCell: UITableViewCell {
 
         chevronIcon.isHidden = !hasChildren
         chevronIcon.tintColor = tintColor
-        chevronIcon.image = UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate)
         chevronIcon.transform = isExpanded ? CGAffineTransform(rotationAngle: .pi/2) : .identity
 
         leadingConstraint.constant = 16 + CGFloat(level * 20)
 
-        // 編集モードでスイッチ表示
+        // スイッチ表示/非表示
         hideSwitch.isHidden = !isEditMode
         hideSwitch.isOn = isHide
+
+        // 制約切り替え
+        chevronToSwitchConstraint.isActive = isEditMode
+        chevronToContentConstraint.isActive = !isEditMode
+
+        layoutIfNeeded()
     }
 
     func rotateChevron(expanded: Bool, animated: Bool = true) {
         let angle: CGFloat = expanded ? .pi/2 : 0
         if animated {
-            UIView.animate(withDuration: 0.25) {
-                self.chevronIcon.transform = CGAffineTransform(rotationAngle: angle)
-            }
+            UIView.animate(withDuration: 0.25) { self.chevronIcon.transform = CGAffineTransform(rotationAngle: angle) }
         } else {
             self.chevronIcon.transform = CGAffineTransform(rotationAngle: angle)
         }
     }
 
     func updateSelectionAppearance(isSelected: Bool) {
-        self.contentView.backgroundColor = isSelected ? UIColor.systemBlue.withAlphaComponent(0.2) : .systemBackground
+        contentView.backgroundColor = isSelected ? UIColor.systemBlue.withAlphaComponent(0.2) : .systemBackground
     }
 }
