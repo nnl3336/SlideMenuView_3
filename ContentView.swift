@@ -50,7 +50,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     
     //***
     
-    // MARK: - スワイプアクション
+    // MARK: - スワイプアクション 
 
     func tableView(_ tableView: UITableView,
                    trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
