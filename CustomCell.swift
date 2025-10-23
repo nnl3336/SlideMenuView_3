@@ -24,6 +24,10 @@ final class CustomCell: UITableViewCell {
     private var level: Int = 0
     private var hasChildren: Bool = false
 
+    // chevron trailing の切り替え用
+    private var chevronTrailingWithSwitch: NSLayoutConstraint!
+    private var chevronTrailingWithoutSwitch: NSLayoutConstraint!
+
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         setupViews()
@@ -48,13 +52,22 @@ final class CustomCell: UITableViewCell {
 
         hideSwitch.translatesAutoresizingMaskIntoConstraints = false
         hideSwitch.isHidden = true // デフォルトは非表示
+        hideSwitch.addTarget(self, action: #selector(switchToggled), for: .valueChanged)
 
         contentView.addSubview(folderIcon)
         contentView.addSubview(titleLabel)
         contentView.addSubview(chevronIcon)
-        contentView.addSubview(hideSwitch) // 追加
+        contentView.addSubview(hideSwitch)
 
         leadingConstraint = folderIcon.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16)
+
+        // chevron trailing を 2 つ用意
+        chevronTrailingWithSwitch = chevronIcon.trailingAnchor.constraint(equalTo: hideSwitch.leadingAnchor, constant: -8)
+        chevronTrailingWithoutSwitch = chevronIcon.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16)
+
+        // デフォルトはスイッチ非表示
+        chevronTrailingWithoutSwitch.isActive = true
+
         NSLayoutConstraint.activate([
             leadingConstraint,
             folderIcon.widthAnchor.constraint(equalToConstant: 32),
@@ -66,7 +79,6 @@ final class CustomCell: UITableViewCell {
             titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 10),
             titleLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -10),
 
-            chevronIcon.trailingAnchor.constraint(equalTo: hideSwitch.leadingAnchor, constant: -8),
             chevronIcon.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             chevronIcon.widthAnchor.constraint(equalToConstant: 20),
             chevronIcon.heightAnchor.constraint(equalToConstant: 20),
@@ -81,14 +93,10 @@ final class CustomCell: UITableViewCell {
     @objc private func chevronTappedAction() {
         chevronTapped?()
     }
-    
-    // MARK: -　isHideスイッチ
-    
+
     @objc private func switchToggled() {
         switchChanged?(hideSwitch.isOn)
     }
-
-    //
 
     // --- 新規: 編集モード用 configure ---
     func configureCell(
@@ -118,6 +126,10 @@ final class CustomCell: UITableViewCell {
         // 編集モードでスイッチ表示
         hideSwitch.isHidden = !isEditMode
         hideSwitch.isOn = isHide
+
+        // chevron の trailing を切り替え
+        chevronTrailingWithSwitch.isActive = isEditMode
+        chevronTrailingWithoutSwitch.isActive = !isEditMode
     }
 
     func rotateChevron(expanded: Bool, animated: Bool = true) {

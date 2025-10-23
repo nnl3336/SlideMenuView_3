@@ -26,7 +26,6 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         super.viewDidLoad()
         setupUI()
         
-        loadExpandedState()
         
         fetchFolders()
         
@@ -55,29 +54,22 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     func tableView(_ tableView: UITableView,
                    trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
 
-        let folder = flattenedFolders[indexPath.row]
+        let item = visibleFlattenedFolders[indexPath.row]  // item は (folder: Folder, level: Int) タプル
+        let folder = item.folder  // folder 本体を取り出す
 
         // 非表示アクション
         let hideAction = UIContextualAction(style: .normal, title: "非表示") { [weak self] action, view, completion in
             guard let self = self else { return }
 
-            // indexPath の安全確認
-            guard indexPath.row < self.flattenedFolders.count else {
-                completion(false)
-                return
-            }
+            folder.isHide = true  // タプルから folder を取り出して操作
 
-            let folder = self.flattenedFolders[indexPath.row]
-            folder.isHide = true
+            self.buildVisibleFlattenedFolders()
 
-            self.flattenedFolders.removeAll { $0.isHide }
-
-            // UITableView の更新
-            self.tableView.performBatchUpdates {
-                self.tableView.deleteRows(at: [indexPath], with: .automatic)
-            } completion: { _ in
+            tableView.performBatchUpdates({
+                tableView.deleteRows(at: [indexPath], with: .automatic)
+            }, completion: { _ in
                 completion(true)
-            }
+            })
         }
         hideAction.backgroundColor = .systemGray
 
@@ -85,12 +77,13 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         let deleteAction = UIContextualAction(style: .destructive, title: "削除") { [weak self] action, view, completion in
             guard let self = self else { return }
 
-            
-            if let index = self.flattenedFolders.firstIndex(of: folder) {
+            // flattenedFolders から削除
+            if let index = self.flattenedFolders.firstIndex(where: { $0.parent == folder }) {
                 self.flattenedFolders.remove(at: index)
             }
 
-            // TableView更新
+            self.buildVisibleFlattenedFolders()
+
             tableView.deleteRows(at: [indexPath], with: .automatic)
 
             completion(true)
@@ -101,6 +94,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         return configuration
     }
 
+    
 
     
     // MARK: - ツールバー
@@ -201,33 +195,36 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                    contextMenuConfigurationForRowAt indexPath: IndexPath,
                    point: CGPoint) -> UIContextMenuConfiguration? {
         
-        let item = flattenedFolders[indexPath.row]
+        guard indexPath.row < visibleFlattenedFolders.count else {
+            print("⚠️ indexPath.row \(indexPath.row) is out of range (count: \(visibleFlattenedFolders.count))")
+            return nil
+        }
         
+        let item = visibleFlattenedFolders[indexPath.row]
+
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
             guard let self = self else {
                 return UIMenu(title: "", children: [])
             }
 
-            // フォルダ追加アクション
-            let addFolder = UIAction(title: "フォルダ追加", image: UIImage(systemName: "folder.badge.plus")) { _ in
-                self.presentAddFolderAlert(parent: item) // ← ここで呼ぶ
-            }
+            // ✅ フォルダ追加アクション
+            // ここは以前のコードで addFolder が定義されていればそのまま
 
             // 選択/トグルアクション
             let selectAction = UIAction(
-                title: self.selectedFolders.contains(item) ? "選択解除" : "選択",
-                image: UIImage(systemName: self.selectedFolders.contains(item) ? "checkmark.circle.fill" : "checkmark.circle")
+                title: self.selectedFolders.contains(item.folder) ? "選択解除" : "選択",
+                image: UIImage(systemName: self.selectedFolders.contains(item.folder) ? "checkmark.circle.fill" : "checkmark.circle")
             ) { _ in
-                guard let index = self.flattenedFolders.firstIndex(of: item) else { return }
+                guard let index = self.flattenedFolders.firstIndex(of: item.folder) else { return }
                 let indexPath = IndexPath(row: index, section: 0)
 
-                if self.selectedFolders.contains(item) {
+                if self.selectedFolders.contains(item.folder) {
                     // 選択解除
-                    self.selectedFolders.remove(item)
+                    self.selectedFolders.remove(item.folder)
                     tableView.deselectRow(at: indexPath, animated: true)
                 } else {
                     // 選択
-                    self.selectedFolders.insert(item)
+                    self.selectedFolders.insert(item.folder)
                     tableView.selectRow(at: indexPath, animated: true, scrollPosition: .none)
                 }
 
@@ -238,10 +235,10 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
             // 削除アクション
             let delete = UIAction(title: "削除", image: UIImage(systemName: "trash"), attributes: .destructive) { _ in
-                self.delete(item)
+                self.delete(item.folder)
             }
 
-            return UIMenu(title: "", children: [addFolder, selectAction, delete])
+            return UIMenu(title: "", children: [/* addFolder?, */ selectAction, delete])
         }
     }
     // MARK: - 子フォルダ追加
@@ -639,11 +636,6 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     }
 
     // MARK: - 検索
-    
-    //基本プロパティ
-    
-    // クラス内プロパティとして
-    private var flattenedFoldersWithLevel: [(folder: Folder, level: Int)] = []
 
     // MARK: - 検索時: 階層ごと表示
     
@@ -658,15 +650,30 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     private func buildFlattenedFolders() {
         guard let allFolders = fetchedResultsController.fetchedObjects else { return }
         let rootFolders = allFolders.filter { $0.parent == nil }
-        
-        // プロパティに代入
-        flattenedFoldersWithLevel = flatten(nodes: rootFolders)
-        
+        flattenedFolders = flatten(nodes: rootFolders)
         buildVisibleFlattenedFolders()
     }
 
     private func buildVisibleFlattenedFolders() {
-        visibleFlattenedFolders = flattenedFolders.filter { isVisible($0) }
+        visibleFlattenedFolders = []
+
+        func addFolder(_ folder: Folder, level: Int) {
+            folder.level = Int64(level)
+            visibleFlattenedFolders.append((folder: folder, level: level)) // ←タプルにする
+
+            if folder.isExpanded {
+                if let children = folder.children as? Set<Folder> {
+                    let sortedChildren = children.sorted { ($0.folderName ?? "") < ($1.folderName ?? "") }
+                    for child in sortedChildren {
+                        addFolder(child, level: level + 1)
+                    }
+                }
+            }
+        }
+
+        for folder in flattenedFolders where folder.parent == nil {
+            addFolder(folder, level: 0)
+        }
     }
 
     func isVisible(_ folder: Folder) -> Bool {
@@ -681,8 +688,8 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     //flatten
     
     // MARK: - Flatten（再帰展開）the flatten
-    private func flatten(nodes: [Folder], level: Int = 0) -> [(folder: Folder, level: Int)] {
-        var result: [(Folder, Int)] = []
+    private func flatten(nodes: [Folder]) -> [Folder] {
+        var result: [Folder] = []
 
         let sortedNodes: [Folder]
         switch currentSort {
@@ -697,16 +704,14 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         }
 
         for node in sortedNodes {
-            result.append((node, level))
+            result.append(node)
             if expandedState[node.uuid] == true, let children = node.children as? Set<Folder> {
-                let childrenSorted = flatten(nodes: Array(children), level: level + 1)
+                let childrenSorted = flatten(nodes: Array(children))
                 result.append(contentsOf: childrenSorted)
             }
         }
-
         return result
     }
-
 
     //***デフォルトfunc
 
@@ -746,76 +751,47 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
     //セル表示
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let folder: Folder
+        let level: Int
+
         if isSearching {
-            // 検索モード: セクションごとの階層表示
-            let level = sortedLevels[indexPath.section]
-            guard let folders = groupedByLevel[level], indexPath.row < folders.count else {
+            // 検索モード
+            let searchLevel = sortedLevels[indexPath.section]
+            guard let folders = groupedByLevel[searchLevel], indexPath.row < folders.count else {
                 return UITableViewCell()
             }
-            let folder = folders[indexPath.row]
-
-            let cell = tableView.dequeueReusableCell(withIdentifier: CustomCell.reuseID, for: indexPath) as! CustomCell
-            let isExpanded = expandedState[folder.uuid] ?? false
-            let hasChildren = (folder.children?.count ?? 0) > 0
-            cell.configureCell(
-                name: folder.folderName ?? "無題",
-                level: Int(folder.level),
-                isExpanded: isExpanded,
-                hasChildren: hasChildren,
-                systemName: "folder",
-                tintColor: .systemBlue,
-                isEditMode: isHideMode,      // 編集モードかどうか
-                isHide: folder.isHide         // フォルダの非表示状態
-            )
-            return cell
+            folder = folders[indexPath.row]
+            level = Int(folder.level)
         } else {
-            // 通常モード: normalBefore + visibleFlattenedFolders + normalAfter
-            let row = indexPath.row
-
-            if row < normalBefore.count {
-                let cell = tableView.dequeueReusableCell(withIdentifier: "Cell", for: indexPath)
-                cell.textLabel?.text = normalBefore[row]
-                return cell
+            // 通常モード
+            guard indexPath.row < visibleFlattenedFolders.count else {
+                print("⚠️ indexPath.row out of range:", indexPath.row, "count:", visibleFlattenedFolders.count)
+                return UITableViewCell()
             }
-
-            let folderStartIndex = normalBefore.count
-            let folderEndIndex = folderStartIndex + visibleFlattenedFolders.count
-
-            if row >= folderStartIndex && row < folderEndIndex {
-                let folderInfo = visibleFlattenedFolders[row - folderStartIndex]
-                guard let folder = folderInfo.parent else { return UITableViewCell() } // folder はタプルの中の Folder (非Optional) にすべき
-                let level = folderInfo.level
-                let isExpanded = expandedState[folder.uuid] ?? false
-                let hasChildren = (folder.children?.count ?? 0) > 0
-
-                let cell = tableView.dequeueReusableCell(withIdentifier: CustomCell.reuseID, for: indexPath) as! CustomCell
-                cell.configureCell(
-                    name: folder.folderName ?? "無題",
-                    level: Int(level),
-                    isExpanded: isExpanded,
-                    hasChildren: hasChildren,
-                    systemName: "folder",
-                    tintColor: .systemBlue,
-                    isEditMode: isHideMode,
-                    isHide: folder.isHide
-                )
-
-                let isSelected = selectedFolders.contains(folder)
-                cell.updateSelectionAppearance(isSelected: isSelected)
-
-                cell.chevronTapped = { [weak self] in
-                    self?.toggleFolder(folder)
-                }
-
-                return cell
-            }
-
-            let afterIndex = row - folderEndIndex
-            let cell = tableView.dequeueReusableCell(withIdentifier: "Cell", for: indexPath)
-            cell.textLabel?.text = normalAfter[afterIndex]
-            return cell
+            (folder, level) = visibleFlattenedFolders[indexPath.row]
         }
+
+        let cell = tableView.dequeueReusableCell(withIdentifier: CustomCell.reuseID, for: indexPath) as! CustomCell
+        let isExpanded = expandedState[folder.uuid] ?? false
+        let hasChildren = (folder.children?.count ?? 0) > 0
+
+        cell.configureCell(
+            name: folder.folderName ?? "無題",
+            level: level,
+            isExpanded: isExpanded,
+            hasChildren: hasChildren,
+            systemName: "folder",
+            tintColor: .systemBlue,
+            isEditMode: isHideMode,
+            isHide: folder.isHide
+        )
+
+        // 編集モード時のハンドル表示
+        cell.showsReorderControl = tableView.isEditing
+
+        return cell
     }
+
     
     // MARK: - 開閉
     
@@ -851,7 +827,8 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     
     //子フォルダの可視制御
     func showChildren(of folder: Folder) {
-        guard let index = visibleFlattenedFolders.firstIndex(of: folder),
+        // タプルの folder で検索
+        guard let index = visibleFlattenedFolders.firstIndex(where: { $0.folder == folder }),
               let childrenSet = folder.children as? Set<Folder> else { return }
 
         // currentSort に従って並び替え
@@ -867,9 +844,12 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             children = childrenSet.sorted { ascending ? ($0.currentDate ?? Date.distantPast) < ($1.currentDate ?? Date.distantPast) : ($0.currentDate ?? Date.distantPast) > ($1.currentDate ?? Date.distantPast) }
         }
 
-        // 挿入
+        let parentLevel = visibleFlattenedFolders[index].level
         let insertIndex = index + 1
-        visibleFlattenedFolders.insert(contentsOf: children, at: insertIndex)
+
+        // 子をタプル (folder, level) として挿入
+        let childrenTuples = children.map { (folder: $0, level: parentLevel + 1) }
+        visibleFlattenedFolders.insert(contentsOf: childrenTuples, at: insertIndex)
 
         // 展開済みなら孫も再帰的に追加
         for child in children where expandedState[child.uuid] == true {
@@ -878,14 +858,18 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     }
 
     func hideDescendants(of folder: Folder) {
-        guard let index = visibleFlattenedFolders.firstIndex(of: folder),
+        // 見つけるのも削除するのもタプルの folder で行う
+        guard let index = visibleFlattenedFolders.firstIndex(where: { $0.folder == folder }),
               let children = folder.children?.allObjects as? [Folder] else { return }
 
         for child in children {
             hideDescendants(of: child)
         }
 
-        visibleFlattenedFolders.removeAll { children.contains($0) }
+        // visibleFlattenedFolders から該当する子フォルダを削除
+        visibleFlattenedFolders.removeAll { tuple in
+            children.contains(tuple.folder)
+        }
     }
     
     // MARK: - Toggle Folder（展開／折りたたみ）　トグル
@@ -902,7 +886,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         // 削除行
         var deleteIndexPaths: [IndexPath] = []
         for (i, f) in oldVisible.enumerated() {
-            if !newVisible.contains(f) {
+            if !newVisible.contains(where: { $0.folder == f.folder }) {
                 deleteIndexPaths.append(IndexPath(row: startRow + i, section: 0))
             }
         }
@@ -910,7 +894,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         // 追加行
         var insertIndexPaths: [IndexPath] = []
         for (i, f) in newVisible.enumerated() {
-            if !oldVisible.contains(f) {
+            if !oldVisible.contains(where: { $0.folder == f.folder }) {
                 insertIndexPaths.append(IndexPath(row: startRow + i, section: 0))
             }
         }
@@ -921,7 +905,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         tableView.endUpdates()
 
         // 矢印回転
-        if let index = newVisible.firstIndex(of: folder),
+        if let index = newVisible.firstIndex(where: { $0.folder == folder }),
            let cell = tableView.cellForRow(at: IndexPath(row: startRow + index, section: 0)) as? CustomCell {
             cell.rotateChevron(expanded: !currently)
         }
@@ -986,73 +970,76 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         let coreDataStartIndex = normalBefore.count
         let coreDataEndIndex = coreDataStartIndex + flattenedFolders.count
 
+        print("Tapped row: \(row)")
+        print("normalBefore.count = \(normalBefore.count), flattenedFolders.count = \(flattenedFolders.count), normalAfter.count = \(normalAfter.count)")
+        print("coreData range: \(coreDataStartIndex) ..< \(coreDataEndIndex)")
+
         if row < normalBefore.count {
-            // normalBefore
-            //print("NormalBefore tapped: \(normalBefore[row])")
+            print("→ normalBefore tapped: \(normalBefore[row])")
             tableView.deselectRow(at: indexPath, animated: true)
 
         } else if row < coreDataEndIndex {
-            // coreData
             let folderIndex = row - coreDataStartIndex
+
+            // 範囲チェック
+            guard folderIndex >= 0 && folderIndex < flattenedFolders.count else {
+                print("⚠️ folderIndex out of range: \(folderIndex)")
+                return
+            }
+
             let folder = flattenedFolders[folderIndex]
-            //print("CoreData folder tapped: \(folder.folderName ?? "無題")")
+            print("→ CoreData folder tapped: \(folder.folderName ?? "無題") index: \(folderIndex)")
 
             if isSelecting {
-                // 選択モード時: トグル選択
                 if selectedFolders.contains(folder) {
                     selectedFolders.remove(folder)
                     if selectedFolders.isEmpty {
                         self.isSelecting = false
                         bottomToolbarState = .normal
                     }
-                    print("Removed folder: \(folder)")
+                    print("Removed folder: \(folder.folderName ?? "")")
                 } else {
                     selectedFolders.insert(folder)
-                    print("Added folder: \(folder)")
+                    print("Added folder: \(folder.folderName ?? "")")
                 }
-                
+
                 tableView.reloadRows(at: [indexPath], with: .none)
                 updateToolbar()
-                
             } else {
                 // 通常タップ: フォルダを開く
+                print("Opening folder: \(folder.folderName ?? "")")
             }
 
         } else {
-            // normalAfter
             let afterIndex = row - coreDataEndIndex
-            print("NormalAfter tapped: \(normalAfter[afterIndex])")
+            guard afterIndex >= 0 && afterIndex < normalAfter.count else {
+                print("⚠️ afterIndex out of range: \(afterIndex)")
+                return
+            }
+            print("→ normalAfter tapped: \(normalAfter[afterIndex])")
             tableView.deselectRow(at: indexPath, animated: true)
         }
     }
     //選択／解除トグル
-    func toggleSelection(for folder: Folder, at indexPath: IndexPath) {
-        if selectedFolders.contains(folder) {
-            selectedFolders.remove(folder)
-            print("Removed folder: \(folder.folderName ?? "無題")")
-            if selectedFolders.isEmpty {
-                self.isSelecting = false
-                self.bottomToolbarState = .normal
-            }
-        } else {
-            selectedFolders.insert(folder)
-            print("Added folder: \(folder.folderName ?? "無題")")
-        }
+    func toggleFolder(_ folder: Folder) {
+        let currently = expandedState[folder.uuid] ?? false
+        expandedState[folder.uuid] = !currently
 
-        print("Current selectedFolders count: \(selectedFolders.count)")
+        // oldVisible を保持
+        let oldVisible = visibleFlattenedFolders
 
-        print("Selected folders:")
-        for f in selectedFolders {
-            print(" - \(f.folderName ?? "無題")")
-        }
+        // visibleFlattenedFolders を再構築
+        buildVisibleFlattenedFolders()
+        let newVisible = visibleFlattenedFolders
 
-        // セルの背景色を更新
-        if let cell = tableView.cellForRow(at: indexPath) as? CustomCell {
-            cell.updateSelectionAppearance(isSelected: selectedFolders.contains(folder))
-        }
+        // normalBefore / normalAfter を更新
+        normalBefore = oldVisible
+        normalAfter = newVisible
 
-        // その他 UI 更新
-        updateToolbar()
+        // UITableView の更新
+        updateTableView(oldVisible: oldVisible, newVisible: newVisible)
+
+        saveExpandedState()
     }
     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
         if searchText.isEmpty {
@@ -1073,7 +1060,9 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
     // 通常時: 展開ツリー
     var flattenedFolders: [Folder] = []                  // 全フォルダ
-    var visibleFlattenedFolders: [Folder] = []          // 表示用
+    /*var visibleFlattenedFolders: [Folder] = []*/          // 表示用
+    // Folder と階層レベルをペアで保持
+    var visibleFlattenedFolders: [(folder: Folder, level: Int)] = []
     
     // 検索時: 階層ごとの分類
     var groupedByLevel: [Int64: [Folder]] = [:]
