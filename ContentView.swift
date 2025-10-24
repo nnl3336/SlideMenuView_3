@@ -725,16 +725,19 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
     // MARK: - Visible array 更新
     private func buildVisibleFlattenedFolders() {
-        if isSearching, let keywords = searchBar.text, !keywords.isEmpty {
-            // 検索フィルターを適用
+        if bottomToolbarState == .editing {
+            // 編集中は全件表示（非表示フォルダも含む）
+            visibleFlattenedFolders = flattenedFolders
+        } else if isSearching, let keywords = searchBar.text, !keywords.isEmpty {
+            // 検索中はフィルタ
             visibleFlattenedFolders = flattenedFolders
                 .filter { $0.folder.folderName?.localizedCaseInsensitiveContains(keywords) ?? false }
-                // .map は不要。flattenedFolders はすでにタプル型
         } else {
-            // 全件表示（編集モードや非表示を考慮する場合は別途 filter も）
+            // 通常モード: 非表示セルを除外
             visibleFlattenedFolders = flattenedFolders
+                .filter { !$0.folder.isHide }
         }
-        
+
         tableView.reloadData()
     }
 
@@ -1132,6 +1135,12 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     var expandedFolders: Set<Folder> = []
     var isSearching: Bool = false
 }
+
+
+
+//
+
+
 
 // 階層構造管理用
 struct FolderNode {
