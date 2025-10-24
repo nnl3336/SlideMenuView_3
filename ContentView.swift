@@ -57,24 +57,39 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
         let item = visibleFlattenedFolders[indexPath.row]
         let folder = item.folder
-
+/*
         // ✅ Core DataのFolderだけスワイプアクションを許可
         guard folder is NSManagedObject else {
             return nil
         }
-
+*/
+        // ✅ Core Data の Folder だけにスワイプアクションを許可
+            guard item.folder is Folder else {
+                return nil
+            }
+        
         // --- 非表示アクション ---
         let hideAction = UIContextualAction(style: .normal, title: "非表示") { [weak self] _, _, completion in
             guard let self = self else { return }
 
+            let folder = self.visibleFlattenedFolders[indexPath.row].folder
             folder.isHide = true
             try? self.context.save()
 
-            // 配列更新
+            // 削除対象のインデックスを取得
+            let indexesToDelete = self.visibleFlattenedFolders.enumerated()
+                .filter { $0.element.folder.isHide }
+                .map { IndexPath(row: $0.offset, section: 0) }
+
+            // 配列から削除
             self.visibleFlattenedFolders.removeAll { $0.folder.isHide }
+
+            // TableView 更新
             tableView.performBatchUpdates({
-                tableView.deleteRows(at: [indexPath], with: .automatic)
-            }, completion: { _ in completion(true) })
+                tableView.deleteRows(at: indexesToDelete, with: .automatic)
+            }, completion: { _ in
+                completion(true)
+            })
         }
         hideAction.backgroundColor = .systemGray
 
