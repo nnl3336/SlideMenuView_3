@@ -50,64 +50,45 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     
     //***
     
-    // MARK: - スワイプアクション 
+    // MARK: - スワイプアクション
 
     func tableView(_ tableView: UITableView,
                    trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
 
-        let folder = visibleFlattenedFolders[indexPath.row]
+        let item = visibleFlattenedFolders[indexPath.row]
+        let folder = item.folder
 
-        // 非表示アクション
-        let hideAction = UIContextualAction(style: .normal, title: "非表示") { [weak self] action, view, completion in
+        // ✅ Core DataのFolderだけスワイプアクションを許可
+        guard folder is NSManagedObject else {
+            return nil
+        }
+
+        // --- 非表示アクション ---
+        let hideAction = UIContextualAction(style: .normal, title: "非表示") { [weak self] _, _, completion in
             guard let self = self else { return }
 
-            // indexPath の安全確認
-            guard indexPath.row < self.flattenedFolders.count else {
-                completion(false)
-                return
-            }
-
-            let folder = self.flattenedFolders[indexPath.row]
             folder.isHide = true
+            try? self.context.save()
 
-            self.flattenedFolders.removeAll { $0.isHide }
-
-            // UITableView の更新
-            self.tableView.performBatchUpdates {
-                self.tableView.deleteRows(at: [indexPath], with: .automatic)
-            } completion: { _ in
-                completion(true)
-            }
+            // 配列更新
+            self.visibleFlattenedFolders.removeAll { $0.folder.isHide }
+            tableView.performBatchUpdates({
+                tableView.deleteRows(at: [indexPath], with: .automatic)
+            }, completion: { _ in completion(true) })
         }
         hideAction.backgroundColor = .systemGray
 
-        // 削除アクション
-        let deleteAction = UIContextualAction(style: .destructive, title: "削除") { [weak self] action, view, completion in
+        // --- 削除アクション ---
+        let deleteAction = UIContextualAction(style: .destructive, title: "削除") { [weak self] _, _, completion in
             guard let self = self else { return }
 
-            
-            let folderTuple = visibleFlattenedFolders[indexPath.row]
-            let folder = folderTuple.folder
+            self.context.delete(folder)
+            try? self.context.save()
 
-            // 1. 配列から削除
-            if let index = self.visibleFlattenedFolders.firstIndex(where: { $0.folder.uuid == folder.uuid }) {
-                visibleFlattenedFolders.remove(at: index)
-            }
-
-            // 2. TableView の行を削除（必ず配列削除の直後）
-            tableView.performBatchUpdates {
+            self.visibleFlattenedFolders.remove(at: indexPath.row)
+            tableView.performBatchUpdates({
                 tableView.deleteRows(at: [indexPath], with: .automatic)
-            } completion: { _ in
-                completion(true)
-            }
-
-
-
-
-            // TableView更新
-            tableView.deleteRows(at: [indexPath], with: .automatic)
-
-            completion(true)
+            }, completion: { _ in completion(true) })
         }
 
         let configuration = UISwipeActionsConfiguration(actions: [deleteAction, hideAction])
