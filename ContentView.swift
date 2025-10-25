@@ -51,42 +51,64 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                    contextMenuConfigurationForRowAt indexPath: IndexPath,
                    point: CGPoint) -> UIContextMenuConfiguration? {
         
-        let folderTuple = visibleFlattenedFolders[indexPath.row]
-        let folder = folderTuple.folder
+        let item = visibleFlattenedFolders[indexPath.row]
+        let folder = item.folder  // ← Folder 部分を取り出す！
         
-        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ -> UIMenu? in
-            // ここで UIMenu を返す
-            let addAction = UIAction(title: "子フォルダ追加", image: UIImage(systemName: "folder.badge.plus")) { _ in
-                self.addChildFolder(to: folder)
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+            guard let self = self else {
+                return UIMenu(title: "", children: [])
             }
-            
-            let selectAction = UIAction(title: "選択", image: UIImage(systemName: "checkmark")) { _ in
-                self.selectFolder(folder, at: indexPath)
+
+            // フォルダ追加アクション
+            let addFolder = UIAction(title: "フォルダ追加", image: UIImage(systemName: "folder.badge.plus")) { _ in
+                self.presentAddFolderAlert(parent: folder)
             }
-            
-            let deleteAction = UIAction(title: "削除", image: UIImage(systemName: "trash"), attributes: .destructive) { _ in
-                self.deleteFolder(folder)
+
+            // 選択/トグルアクション
+            let selectAction = UIAction(
+                title: self.selectedFolders.contains(folder) ? "選択解除" : "選択",
+                image: UIImage(systemName: self.selectedFolders.contains(folder) ? "checkmark.circle.fill" : "checkmark.circle")
+            ) { _ in
+                guard let index = self.flattenedFolders.firstIndex(where: { $0.folder == folder }) else { return }
+                let indexPath = IndexPath(row: index, section: 0)
+
+                if self.selectedFolders.contains(folder) {
+                    self.selectedFolders.remove(folder)
+                    tableView.deselectRow(at: indexPath, animated: true)
+                } else {
+                    self.selectedFolders.insert(folder)
+                    tableView.selectRow(at: indexPath, animated: true, scrollPosition: .none)
+                }
+
+                self.isSelecting = true
+                self.bottomToolbarState = .selecting
+                self.updateToolbar()
             }
-            
-            return UIMenu(title: "", children: [addAction, selectAction, deleteAction])
+
+            // 削除アクション
+            let delete = UIAction(title: "削除", image: UIImage(systemName: "trash"), attributes: .destructive) { _ in
+                self.delete(folder)
+            }
+
+            return UIMenu(title: "", children: [addFolder, selectAction, delete])
         }
     }
-    func addChildFolder(to parent: Folder) {
+    func addChildFolder(to parent: Folder, name: String) {
         let newFolder = Folder(context: context)
-        newFolder.folderName = "新しいフォルダ"
+        newFolder.folderName = name
         newFolder.parent = parent
-        
-        // 並び順や level を設定
         newFolder.sortIndex = Int64((parent.children?.count ?? 0))
         
         do {
             try context.save()
-            buildVisibleFlattenedFolders() // TableView 更新用
+            buildVisibleFlattenedFolders()
             tableView.reloadData()
         } catch {
             print("Failed to add child folder:", error)
         }
     }
+
+    
     // 選択処理
     func selectFolder(_ folder: Folder, at indexPath: IndexPath) {
         // 選択済みなら削除、未選択なら追加（トグル）
@@ -99,7 +121,43 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         // この行だけ更新
         tableView.reloadRows(at: [indexPath], with: .none)
     }
+    func delete(_ item: Folder) {
+        context.delete(item)
+        do {
+            try context.save()
+            fetchFolders()
+        } catch {
+            print("❌ フォルダ削除エラー: \(error)")
+        }
+    }
+    func presentAddFolderAlert(parent: Folder) {
+        let alert = UIAlertController(title: "フォルダ名を入力", message: nil, preferredStyle: .alert)
+        alert.addTextField { textField in
+            textField.placeholder = "新しいフォルダ名"
+        }
 
+        let addAction = UIAlertAction(title: "追加", style: .default) { [weak self] _ in
+            guard let self = self else { return }
+            guard let folderName = alert.textFields?.first?.text?.trimmingCharacters(in: .whitespaces), !folderName.isEmpty else {
+                self.presentWarningAlert(message: "フォルダ名を入力してください")
+                return
+            }
+            self.addChildFolder(to: parent, name: folderName)
+        }
+
+        let cancelAction = UIAlertAction(title: "キャンセル", style: .cancel)
+
+        alert.addAction(addAction)
+        alert.addAction(cancelAction)
+
+        self.present(alert, animated: true)
+    }
+
+    func presentWarningAlert(message: String) {
+        let warning = UIAlertController(title: "無効な名前", message: message, preferredStyle: .alert)
+        warning.addAction(UIAlertAction(title: "OK", style: .default))
+        self.present(warning, animated: true)
+    }
     
     // MARK: - スワイプアクション
     
@@ -1071,7 +1129,9 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                 }
                 
                 tableView.reloadRows(at: [indexPath], with: .none)
+                
                 updateToolbar()
+                
             } else {
                 // 通常タップ: フォルダを開く
             }
