@@ -9,6 +9,13 @@ import SwiftUI
 
 import CoreData
 
+extension Array {
+    subscript(safe index: Int) -> Element? {
+        return indices.contains(index) ? self[index] : nil
+    }
+}
+
+
 private var isVisibleKey: UInt8 = 0
 
 extension Folder {
