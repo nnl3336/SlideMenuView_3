@@ -16,7 +16,7 @@ import CoreData
 import UIKit
 import CoreData
 
-class FolderViewController: UIViewController, UITableViewDataSource, UITableViewDelegate, NSFetchedResultsControllerDelegate, UISearchBarDelegate {
+class FolderViewController: UIViewController, UITableViewDataSource, UITableViewDelegate, NSFetchedResultsControllerDelegate, UISearchBarDelegate, UITextFieldDelegate {
     
     //***//イニシャライズ
     
@@ -261,32 +261,73 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     }
 
     // MARK: - UIセットアップ
+    
+    private var textField: UITextField!
+    
     private func setupUI() {
         view.backgroundColor = .systemBackground
-
-        // MARK: - サーチバーセットアップ
-        /*searchBar = UISearchBar()
-        searchBar.delegate = self
-        searchBar.placeholder = "フォルダ名を検索"
-        navigationItem.titleView = searchBar*/
-
-        // MARK: - UITableViewセットアップ
+        
+        // 🔹 Navigation Bar に + ボタンを追加
+        navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .add,
+                                                            target: self,
+                                                            action: #selector(addButtonTapped))
+        
+        // 🔹 TableView 設置
         tableView = UITableView(frame: view.bounds, style: .insetGrouped)
         tableView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         tableView.dataSource = self
         tableView.delegate = self
         view.addSubview(tableView)
-
-        // MARK: - ナビゲーションバーに「親フォルダ追加」ボタン
-        let addParentFolderButton = UIBarButtonItem(
-            barButtonSystemItem: .add,
-            target: self,
-            action: #selector(addParentFolder)
-        )
-        navigationItem.rightBarButtonItem = addParentFolderButton
-
-        //tableView.register(CustomCell.self, forCellReuseIdentifier: CustomCell.reuseID)
     }
+    
+    // MARK: - ＋ボタン押下でアラート表示
+    @objc private func addButtonTapped() {
+        let alert = UIAlertController(title: "新しいフォルダ", message: "フォルダ名を入力してください", preferredStyle: .alert)
+        alert.addTextField { textField in
+            textField.placeholder = "フォルダ名"
+        }
+
+        let addAction = UIAlertAction(title: "追加", style: .default) { [weak self] _ in
+            guard let self = self,
+                  let name = alert.textFields?.first?.text,
+                  !name.isEmpty else { return }
+            self.addParentFolder(named: name)
+        }
+
+        let cancelAction = UIAlertAction(title: "キャンセル", style: .cancel, handler: nil)
+        alert.addAction(cancelAction)
+        alert.addAction(addAction)
+
+        present(alert, animated: true)
+    }
+    
+    // MARK: - フォルダ追加処理
+    private func addParentFolder(named name: String) {
+        // 同名チェック
+        if visibleFlattenedFolders.contains(where: { $0.folder.folderName == name }) {
+            print("❌ 同名フォルダが既に存在します")
+            return
+        }
+
+        let newFolder = Folder(context: context)
+        newFolder.folderName = name
+        newFolder.parent = nil
+        newFolder.sortIndex = (visibleFlattenedFolders.map { $0.folder.sortIndex }.max() ?? 0) + 1
+
+        do {
+            try context.save()  // Core Data に保存
+            visibleFlattenedFolders.append((folder: newFolder, level: 0))  // 表示用配列にも追加
+
+            // テーブルに挿入
+            let newIndexPath = IndexPath(row: visibleFlattenedFolders.count - 1, section: 0)
+            tableView.insertRows(at: [newIndexPath], with: .automatic)
+
+            print("📁 保存成功: \(name)")
+        } catch {
+            print("保存エラー:", error)
+        }
+    }
+    
 
     // MARK: - ボタンアクション
     @objc private func addParentFolder() {
@@ -917,6 +958,12 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     var expandedFolders: Set<Folder> = []
     var isSearching: Bool = false
 }
+
+
+//
+
+
+
 
 // 階層構造管理用
 struct FolderNode {
