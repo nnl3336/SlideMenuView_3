@@ -774,16 +774,12 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         }
     }
     
-    
-    
     let normalBefore = ["Apple", "Orange"]
     let normalAfter = ["Banana"]
-
 
     //セル表示
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         if isSearching {
-            // 検索モード: セクションごとの階層表示
             let level = sortedLevels[indexPath.section]
             guard let folders = groupedByLevel[level], indexPath.row < folders.count else {
                 return UITableViewCell()
@@ -801,9 +797,16 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                 systemName: "folder",
                 tintColor: .systemBlue
             )
+            
+            // 選択状態の反映
+            if selectedFolders.contains(folder) {
+                cell.contentView.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.3)
+            } else {
+                cell.contentView.backgroundColor = .clear
+            }
+
             return cell
         } else {
-            // 通常モード: normalBefore + visibleFlattenedFolders + normalAfter
             let row = indexPath.row
 
             if row < normalBefore.count {
@@ -817,7 +820,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
             if row >= folderStartIndex && row < folderEndIndex {
                 let tuple = visibleFlattenedFolders[row - folderStartIndex]
-                let folder = tuple.folder   // タプルから Folder を取り出す
+                let folder = tuple.folder
                 let isExpanded = expandedState[folder.uuid] ?? false
                 let hasChildren = (folder.children?.count ?? 0) > 0
 
@@ -830,6 +833,13 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                     systemName: "folder",
                     tintColor: .systemBlue
                 )
+
+                // 選択状態の反映
+                if selectedFolders.contains(folder) {
+                    cell.contentView.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.3)
+                } else {
+                    cell.contentView.backgroundColor = .clear
+                }
 
                 // 矢印タップのハンドリング
                 cell.chevronTapped = { [weak self, weak cell] in
@@ -1023,40 +1033,53 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         return isVisible ? UITableView.automaticDimension : 0
     }*/
 
+    var isSelecting: Bool = false
+
     //セルタップ
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         guard !isSearching else { return }
 
         let row = indexPath.row
         let coreDataStartIndex = normalBefore.count
-        let coreDataEndIndex = coreDataStartIndex + visibleFlattenedFolders.count
+        let coreDataEndIndex = coreDataStartIndex + flattenedFolders.count
 
         if row < normalBefore.count {
             // normalBefore
-            print("NormalBefore tapped: \(normalBefore[row])")
+            //print("NormalBefore tapped: \(normalBefore[row])")
             tableView.deselectRow(at: indexPath, animated: true)
+
         } else if row < coreDataEndIndex {
             // coreData
             let folderIndex = row - coreDataStartIndex
-            let folderTuple = visibleFlattenedFolders[folderIndex]
-            let folder = folderTuple.folder
-            print("CoreData folder tapped: \(folder.folderName ?? "無題")")
+            let folder = flattenedFolders[folderIndex]
+            //print("CoreData folder tapped: \(folder.folderName ?? "無題")")
 
-            if isHideMode {
+            if isSelecting {
+                let folder = visibleFlattenedFolders[indexPath.row].folder  // ← タプルから Folder を取り出す
+
+                // トグル選択
                 if selectedFolders.contains(folder) {
                     selectedFolders.remove(folder)
+                    if selectedFolders.isEmpty {
+                        self.isSelecting = false
+                        bottomToolbarState = .normal
+                    }
+                    print("Removed folder: \(folder.folderName ?? "")")
                 } else {
                     selectedFolders.insert(folder)
+                    print("Added folder: \(folder.folderName ?? "")")
                 }
+                
                 tableView.reloadRows(at: [indexPath], with: .none)
                 updateToolbar()
             } else {
-                tableView.deselectRow(at: indexPath, animated: true)
+                // 通常タップ: フォルダを開く
             }
+
         } else {
             // normalAfter
             let afterIndex = row - coreDataEndIndex
-            print("NormalAfter tapped: \(normalAfter[afterIndex])")
+            //print("NormalAfter tapped: \(normalAfter[afterIndex])")
             tableView.deselectRow(at: indexPath, animated: true)
         }
     }
