@@ -45,6 +45,145 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     
     //***
     
+    // MARK: - コンテキストメニュー
+    
+    func tableView(_ tableView: UITableView,
+                   contextMenuConfigurationForRowAt indexPath: IndexPath,
+                   point: CGPoint) -> UIContextMenuConfiguration? {
+        
+        let folderTuple = visibleFlattenedFolders[indexPath.row]
+        let folder = folderTuple.folder
+        
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ -> UIMenu? in
+            // ここで UIMenu を返す
+            let addAction = UIAction(title: "子フォルダ追加", image: UIImage(systemName: "folder.badge.plus")) { _ in
+                self.addChildFolder(to: folder)
+            }
+            
+            let selectAction = UIAction(title: "選択", image: UIImage(systemName: "checkmark")) { _ in
+                self.selectFolder(folder, at: indexPath)
+            }
+            
+            let deleteAction = UIAction(title: "削除", image: UIImage(systemName: "trash"), attributes: .destructive) { _ in
+                self.deleteFolder(folder)
+            }
+            
+            return UIMenu(title: "", children: [addAction, selectAction, deleteAction])
+        }
+    }
+    func addChildFolder(to parent: Folder) {
+        let newFolder = Folder(context: context)
+        newFolder.folderName = "新しいフォルダ"
+        newFolder.parent = parent
+        
+        // 並び順や level を設定
+        newFolder.sortIndex = Int64((parent.children?.count ?? 0))
+        
+        do {
+            try context.save()
+            buildVisibleFlattenedFolders() // TableView 更新用
+            tableView.reloadData()
+        } catch {
+            print("Failed to add child folder:", error)
+        }
+    }
+    // 選択処理
+    func selectFolder(_ folder: Folder, at indexPath: IndexPath) {
+        // 選択済みなら削除、未選択なら追加（トグル）
+        if selectedFolders.contains(folder) {
+            selectedFolders.remove(folder)
+        } else {
+            selectedFolders.insert(folder)
+        }
+
+        // この行だけ更新
+        tableView.reloadRows(at: [indexPath], with: .none)
+    }
+
+    
+    // MARK: - スワイプアクション
+    
+    func tableView(_ tableView: UITableView,
+                   trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath)
+                   -> UISwipeActionsConfiguration? {
+
+        let row = indexPath.row
+        let folderStartIndex = normalBefore.count
+        let folderEndIndex = folderStartIndex + visibleFlattenedFolders.count
+
+        // CoreData フォルダ以外（normalBefore, normalAfter）はスワイプ不可
+        guard row >= folderStartIndex && row < folderEndIndex else { return nil }
+
+        let tuple = visibleFlattenedFolders[row - folderStartIndex]
+        let folder = tuple.folder
+
+        // 削除アクション
+        let deleteAction = UIContextualAction(style: .destructive, title: "削除") { action, view, completion in
+            self.deleteFolder(folder)
+            completion(true)
+        }
+
+        // 非表示アクション
+        let hideAction = UIContextualAction(style: .normal, title: "非表示") { action, view, completion in
+            self.hideFolder(folder)
+            completion(true)
+        }
+        hideAction.backgroundColor = .gray
+
+        let configuration = UISwipeActionsConfiguration(actions: [deleteAction, hideAction])
+        configuration.performsFirstActionWithFullSwipe = false
+        return configuration
+    }
+
+
+
+    // フォルダを削除する
+    private func deleteFolder(_ folder: Folder) {
+        // folderInfo が (folder: Folder, level: Int) になっていることを想定
+        guard let index = visibleFlattenedFolders.firstIndex(where: { $0.folder == folder }) else { return }
+
+        // 子フォルダのインデックスも取得
+        let rowsToDelete = [index] + childIndexes(of: folder)
+
+        // 大きい順に削除（インデックスずれ防止）
+        for row in rowsToDelete.sorted(by: >) {
+            visibleFlattenedFolders.remove(at: row)
+        }
+
+        tableView.deleteRows(at: rowsToDelete.map { IndexPath(row: $0, section: 0) }, with: .automatic)
+
+        // Core Data からも削除
+        context.delete(folder)
+        try? context.save()
+    }
+
+    // フォルダを非表示にする
+    private func hideFolder(_ folder: Folder) {
+        guard let index = visibleFlattenedFolders.firstIndex(where: { $0.folder == folder }) else { return }
+
+        let rowsToHide = [index] + childIndexes(of: folder)
+
+        for row in rowsToHide.sorted(by: >) {
+            visibleFlattenedFolders.remove(at: row)
+        }
+
+        tableView.deleteRows(at: rowsToHide.map { IndexPath(row: $0, section: 0) }, with: .automatic)
+    }
+
+
+    // 子フォルダの index を取得
+    private func childIndexes(of folderInfo: Folder) -> [Int] {
+        var indexes: [Int] = []
+        for (i, info) in visibleFlattenedFolders.enumerated() {
+            if info.folder.parent == folderInfo.children {
+                indexes.append(i)
+            }
+        }
+        return indexes
+    }
+
+
+    
     // MARK: - 並び替え
     private var tableView = UITableView()
     private var searchBar = UISearchBar()
