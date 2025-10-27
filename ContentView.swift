@@ -46,14 +46,15 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     //***
     
     // MARK: - コンテキストメニュー
-    
     func tableView(_ tableView: UITableView,
                    contextMenuConfigurationForRowAt indexPath: IndexPath,
                    point: CGPoint) -> UIContextMenuConfiguration? {
-        
-        let item = visibleFlattenedFolders[indexPath.row]
-        let folder = item.folder  // ← Folder 部分を取り出す！
-        
+
+        // Folder 自体を取得
+        let folderIndex = indexPath.row - normalBefore.count
+        guard folderIndex >= 0 && folderIndex < visibleFlattenedFolders.count else { return nil }
+        let folder = visibleFlattenedFolders[folderIndex]
+
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
             guard let self = self else {
                 return UIMenu(title: "", children: [])
@@ -69,20 +70,23 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                 title: self.selectedFolders.contains(folder) ? "選択解除" : "選択",
                 image: UIImage(systemName: self.selectedFolders.contains(folder) ? "checkmark.circle.fill" : "checkmark.circle")
             ) { _ in
-                guard let index = self.flattenedFolders.firstIndex(where: { $0.folder == folder }) else { return }
+                guard let index = self.visibleFlattenedFolders.firstIndex(of: folder) else { return }
                 let indexPath = IndexPath(row: index, section: 0)
 
                 if self.selectedFolders.contains(folder) {
                     self.selectedFolders.remove(folder)
-                    tableView.deselectRow(at: indexPath, animated: true)
                 } else {
                     self.selectedFolders.insert(folder)
-                    tableView.selectRow(at: indexPath, animated: true, scrollPosition: .none)
                 }
 
                 self.isSelecting = true
                 self.bottomToolbarState = .selecting
                 self.updateToolbar()
+
+                // ✅ 該当セルだけ更新（reloadData()禁止！）
+                tableView.reloadRows(at: [indexPath], with: .none)
+                
+                tableView.reloadData()
             }
 
             // 削除アクション
@@ -93,6 +97,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             return UIMenu(title: "", children: [addFolder, selectAction, delete])
         }
     }
+
     func addChildFolder(to parent: Folder, name: String) {
         let newFolder = Folder(context: context)
         newFolder.folderName = name
@@ -172,8 +177,8 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         // CoreData フォルダ以外（normalBefore, normalAfter）はスワイプ不可
         guard row >= folderStartIndex && row < folderEndIndex else { return nil }
 
-        let tuple = visibleFlattenedFolders[row - folderStartIndex]
-        let folder = tuple.folder
+        // タプルではなく Folder そのもの
+        let folder = visibleFlattenedFolders[row - folderStartIndex]
 
         // 削除アクション
         let deleteAction = UIContextualAction(style: .destructive, title: "削除") { action, view, completion in
@@ -197,8 +202,8 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
     // フォルダを削除する
     private func deleteFolder(_ folder: Folder) {
-        // folderInfo が (folder: Folder, level: Int) になっていることを想定
-        guard let index = visibleFlattenedFolders.firstIndex(where: { $0.folder == folder }) else { return }
+        // Folder 自体を検索
+        guard let index = visibleFlattenedFolders.firstIndex(of: folder) else { return }
 
         // 子フォルダのインデックスも取得
         let rowsToDelete = [index] + childIndexes(of: folder)
@@ -217,7 +222,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
     // フォルダを非表示にする
     private func hideFolder(_ folder: Folder) {
-        guard let index = visibleFlattenedFolders.firstIndex(where: { $0.folder == folder }) else { return }
+        guard let index = visibleFlattenedFolders.firstIndex(of: folder) else { return }
 
         let rowsToHide = [index] + childIndexes(of: folder)
 
@@ -229,16 +234,23 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     }
 
 
+
     // 子フォルダの index を取得
-    private func childIndexes(of folderInfo: Folder) -> [Int] {
+    private func childIndexes(of folder: Folder) -> [Int] {
         var indexes: [Int] = []
-        for (i, info) in visibleFlattenedFolders.enumerated() {
-            if info.folder.parent == folderInfo.children {
+
+        for (i, f) in visibleFlattenedFolders.enumerated() {
+            // f の parent が folder なら子
+            if f.parent == folder {
                 indexes.append(i)
+                // 再帰的に孫も含める場合
+                indexes.append(contentsOf: childIndexes(of: f))
             }
         }
+
         return indexes
     }
+
 
 
     
@@ -501,7 +513,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     // MARK: - フォルダ追加処理
     private func addParentFolder(named name: String) {
         // 同名チェック
-        if visibleFlattenedFolders.contains(where: { $0.folder.folderName == name }) {
+        if visibleFlattenedFolders.contains(where: { $0.folderName == name }) {
             print("❌ 同名フォルダが既に存在します")
             return
         }
@@ -509,11 +521,13 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         let newFolder = Folder(context: context)
         newFolder.folderName = name
         newFolder.parent = nil
-        newFolder.sortIndex = (visibleFlattenedFolders.map { $0.folder.sortIndex }.max() ?? 0) + 1
+        newFolder.sortIndex = (visibleFlattenedFolders.map { $0.sortIndex }.max() ?? 0) + 1
 
         do {
             try context.save()  // Core Data に保存
-            visibleFlattenedFolders.append((folder: newFolder, level: 0))  // 表示用配列にも追加
+            
+            // 表示用配列にも追加（タプルではなく Folder 自体）
+            visibleFlattenedFolders.append(newFolder)
 
             // テーブルに挿入
             let newIndexPath = IndexPath(row: visibleFlattenedFolders.count - 1, section: 0)
@@ -524,31 +538,18 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             print("保存エラー:", error)
         }
     }
-    
+
 
     // MARK: - ボタンアクション
     @objc private func addParentFolder() {
-        // 新しい親フォルダを作成
         let newFolder = Folder(context: context)
         newFolder.folderName = "新しいフォルダ"
-        newFolder.sortIndex = (visibleFlattenedFolders.map { $0.folder.sortIndex }.max() ?? 0) + 1
-        newFolder.level = 0  // 親フォルダなのでレベル0
+        newFolder.sortIndex = (visibleFlattenedFolders.map { $0.sortIndex }.max() ?? 0) + 1
+        newFolder.level = 0
 
-        // Core Data 保存
-        do {
-            try context.save()
-        } catch {
-            print("保存に失敗: \(error)")
-            return
-        }
-
-        // データ反映
-        buildVisibleFlattenedFolders() // ← これが visibleFlattenedFolders を再構築する関数なら呼ぶ
-
-        // テーブル更新
+        try? context.save()
+        buildVisibleFlattenedFolders()
         tableView.reloadData()
-
-        print("親フォルダが追加されました: \(newFolder.folderName ?? "")")
     }
 
 
@@ -623,15 +624,31 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     private func buildFlattenedFolders() {
         guard let allFolders = fetchedResultsController.fetchedObjects else { return }
 
+        // ルートフォルダだけ抽出
         var rootFolders = allFolders.filter { $0.parent == nil }
 
         if currentSort == .order {
             // order モードのときは sortIndex で並び替え
-            rootFolders.sort { ($0.sortIndex) < ($1.sortIndex) }
+            rootFolders.sort { $0.sortIndex < $1.sortIndex }
         }
 
-        // flattenedFolders はもう level 付きにする
-        visibleFlattenedFolders = flattenWithLevel(nodes: rootFolders)
+        // visibleFlattenedFolders を再構築
+        visibleFlattenedFolders = []
+        buildVisibleFolders(from: rootFolders)
+    }
+
+    // 再帰的に展開して visibleFlattenedFolders に追加
+    private func buildVisibleFolders(from folders: [Folder]) {
+        for folder in folders {
+            visibleFlattenedFolders.append(folder)
+
+            // 展開状態のフォルダだけ子フォルダを追加
+            if expandedState[folder.uuid] == true,
+               let children = folder.children as? Set<Folder> {
+                let sortedChildren = children.sorted { $0.sortIndex < $1.sortIndex }
+                buildVisibleFolders(from: sortedChildren)
+            }
+        }
     }
 
     private func flattenWithLevel(nodes: [Folder], level: Int = 0) -> [(folder: Folder, level: Int)] {
@@ -660,22 +677,28 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     }
 
     private func buildVisibleFlattenedFolders() {
-        var result: [(folder: Folder, level: Int)] = []
+        var result: [Folder] = []
 
-        func addChildren(of folder: Folder, level: Int) {
-            result.append((folder, level))
-            
-            if expandedState[folder.uuid] ?? false,
-               let children = (folder.children as? Set<Folder>)?.sorted(by: { $0.sortIndex < $1.sortIndex }) {
-                for child in children {
-                    addChildren(of: child, level: level + 1)
+        func addChildren(of folder: Folder) {
+            result.append(folder)
+
+            // 展開状態のフォルダだけ子フォルダを追加
+            if expandedState[folder.uuid] == true,
+               let children = folder.children as? Set<Folder> {
+                let sortedChildren = children.sorted { $0.sortIndex < $1.sortIndex }
+                for child in sortedChildren {
+                    addChildren(of: child)
                 }
             }
         }
 
-        let rootFolders = flattenedFolders.map { $0.folder }.filter { $0.parent == nil }
-        for root in rootFolders {
-            addChildren(of: root, level: 0)
+        // Core Data から直接ルートフォルダを取得
+        guard let allFolders = fetchedResultsController.fetchedObjects else { return }
+        let rootFolders = allFolders.filter { $0.parent == nil }
+        let sortedRoots = rootFolders.sorted { $0.sortIndex < $1.sortIndex }
+
+        for root in sortedRoots {
+            addChildren(of: root)
         }
 
         visibleFlattenedFolders = result
@@ -732,29 +755,29 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         guard currentSort == .order else { return }
 
         let coreDataStart = normalBefore.count
-        let coreDataEnd = coreDataStart + flattenedFolders.count - 1
+        let coreDataEnd = coreDataStart + visibleFlattenedFolders.count - 1
 
-        // CoreDataセル範囲外なら何もしない
+        // Core Dataセル範囲外なら何もしない
         if sourceIndexPath.row < coreDataStart || sourceIndexPath.row > coreDataEnd ||
            destinationIndexPath.row < coreDataStart || destinationIndexPath.row > coreDataEnd {
             tableView.reloadData()
             return
         }
 
-        // CoreDataインデックスに変換
+        // visibleFlattenedFoldersインデックスに変換
         let from = sourceIndexPath.row - coreDataStart
         let to = destinationIndexPath.row - coreDataStart
 
         // 並べ替え処理
-        let moved = flattenedFolders.remove(at: from)
-        flattenedFolders.insert(moved, at: to)
+        let moved = visibleFlattenedFolders.remove(at: from)
+        visibleFlattenedFolders.insert(moved, at: to)
 
         // sortIndex更新
-        for (i, tuple) in flattenedFolders.enumerated() {
-            tuple.folder.sortIndex = Int64(i)
+        for (i, folder) in visibleFlattenedFolders.enumerated() {
+            folder.sortIndex = Int64(i)
         }
 
-        // ✅ 保存
+        // Core Data 保存
         do {
             try context.save()
             print("✅ 並び順を保存しました")
@@ -762,21 +785,21 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             print("❌ 保存失敗: \(error)")
         }
 
-        // ⚠️ 即fetchFolders()しない！
-        // save直後にフェッチし直すと順序がリセットされて見える
+        // 即fetchし直すと順序がリセットされるので不要
     }
     func saveFolderOrder() {
-        for (index, tuple) in flattenedFolders.enumerated() {
-            tuple.folder.sortIndex = Int64(index)  // CoreData の順番用プロパティ
+        for (index, folder) in visibleFlattenedFolders.enumerated() {
+            folder.sortIndex = Int64(index)  // Core Data の順番用プロパティ
         }
-        
+
         do {
             try context.save()
+            print("✅ フォルダ順を保存しました")
         } catch {
-            print("Failed to save folder order:", error)
+            print("❌ フォルダ順の保存に失敗:", error)
         }
     }
-    
+
     // 削除・挿入ボタンを出さない
     func tableView(_ tableView: UITableView, editingStyleForRowAt indexPath: IndexPath) -> UITableViewCell.EditingStyle {
         return .none
@@ -792,17 +815,17 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     func tableView(_ tableView: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool {
         guard currentSort == .order else { return false }
 
-        // normalBefore
+        // normalBefore セルは移動不可
         if indexPath.row < normalBefore.count { return false }
 
-        // CoreDataセル範囲の計算
+        // CoreDataセル範囲
         let coreDataStart = normalBefore.count
-        let coreDataEnd = coreDataStart + flattenedFolders.count - 1
+        let coreDataEnd = coreDataStart + visibleFlattenedFolders.count - 1
 
-        // normalAfter
+        // normalAfter セルは移動不可
         if indexPath.row > coreDataEnd { return false }
 
-        // CoreDataセルのみOK
+        // Core Data フォルダのみ移動可能
         return true
     }
 
@@ -818,11 +841,14 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     
     //セクション
     
-
+    //セクション数
+    
     func numberOfSections(in tableView: UITableView) -> Int {
         return isSearching ? sortedLevels.count : 1
     }
 
+    //セクションヘッダー
+    
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         if isSearching {
             let level = sortedLevels[section]
@@ -831,6 +857,8 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             return nil
         }
     }
+    
+    //基本プロパティ
     
     let normalBefore = ["Apple", "Orange"]
     let normalAfter = ["Banana"]
@@ -857,28 +885,27 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             )
             
             // 選択状態の反映
-            if selectedFolders.contains(folder) {
-                cell.contentView.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.3)
-            } else {
-                cell.contentView.backgroundColor = .clear
-            }
+            cell.contentView.backgroundColor = selectedFolders.contains(folder)
+                ? UIColor.systemBlue.withAlphaComponent(0.3)
+                : .clear
 
             return cell
         } else {
             let row = indexPath.row
 
+            // normalBefore
             if row < normalBefore.count {
                 let cell = tableView.dequeueReusableCell(withIdentifier: "Cell", for: indexPath)
                 cell.textLabel?.text = normalBefore[row]
                 return cell
             }
 
+            // Core Data フォルダ
             let folderStartIndex = normalBefore.count
             let folderEndIndex = folderStartIndex + visibleFlattenedFolders.count
 
             if row >= folderStartIndex && row < folderEndIndex {
-                let tuple = visibleFlattenedFolders[row - folderStartIndex]
-                let folder = tuple.folder
+                let folder = visibleFlattenedFolders[row - folderStartIndex]
                 let isExpanded = expandedState[folder.uuid] ?? false
                 let hasChildren = (folder.children?.count ?? 0) > 0
 
@@ -893,21 +920,20 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                 )
 
                 // 選択状態の反映
-                if selectedFolders.contains(folder) {
-                    cell.contentView.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.3)
-                } else {
-                    cell.contentView.backgroundColor = .clear
-                }
+                cell.selectionStyle = .none
+                cell.contentView.backgroundColor = selectedFolders.contains(folder)
+                    ? UIColor.systemBlue.withAlphaComponent(0.3)
+                    : .clear
 
                 // 矢印タップのハンドリング
-                cell.chevronTapped = { [weak self, weak cell] in
-                    guard let self = self, let cell = cell else { return }
-                    self.toggleFolder(folder)
+                cell.chevronTapped = { [weak self] in
+                    self?.toggleFolder(folder)
                 }
 
                 return cell
             }
 
+            // normalAfter
             let afterIndex = row - folderEndIndex
             let cell = tableView.dequeueReusableCell(withIdentifier: "Cell", for: indexPath)
             cell.textLabel?.text = normalAfter[afterIndex]
@@ -923,8 +949,9 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     //基本プロパティ
     
     //var expandedState: [NSManagedObjectID: Bool] = [:]
+    var visibleFlattenedFolders: [Folder] = []
     var expandedState: [UUID: Bool] = [:]
-    
+
     var visibleState: [UUID: Bool] = [:]
     
     //***
@@ -952,8 +979,8 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     
     //子フォルダの可視制御
     func showChildren(of folder: Folder) {
-        // タプルの folder 部分でインデックスを取得
-        guard let index = visibleFlattenedFolders.firstIndex(where: { $0.folder == folder }),
+        // インデックスを取得
+        guard let index = visibleFlattenedFolders.firstIndex(of: folder),
               let childrenSet = folder.children as? Set<Folder> else { return }
 
         // currentSort に従って並び替え
@@ -969,24 +996,17 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             children = childrenSet.sorted { ascending ? ($0.currentDate ?? Date.distantPast) < ($1.currentDate ?? Date.distantPast) : ($0.currentDate ?? Date.distantPast) > ($1.currentDate ?? Date.distantPast) }
         }
 
-        // 挿入位置とレベル計算
+        // 挿入位置
         let insertIndex = index + 1
-        let parentLevel = visibleFlattenedFolders[index].level
-        let childrenTuples = children.map { (folder: $0, level: parentLevel + 1) }
-
-        // タプル配列として挿入
-        visibleFlattenedFolders.insert(contentsOf: childrenTuples, at: insertIndex)
+        visibleFlattenedFolders.insert(contentsOf: children, at: insertIndex)
 
         // 展開済みなら孫も再帰的に追加
         for child in children where expandedState[child.uuid] == true {
             showChildren(of: child)
         }
     }
-
     func hideDescendants(of folder: Folder) {
-        // タプルの folder 部分でインデックスを取得
-        guard let index = visibleFlattenedFolders.firstIndex(where: { $0.folder == folder }),
-              let children = folder.children?.allObjects as? [Folder] else { return }
+        guard let children = folder.children?.allObjects as? [Folder] else { return }
 
         // 再帰的に子孫を隠す
         for child in children {
@@ -994,10 +1014,11 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         }
 
         // visibleFlattenedFolders から子フォルダを削除
-        visibleFlattenedFolders.removeAll { tuple in
-            children.contains(tuple.folder)
+        visibleFlattenedFolders.removeAll { child in
+            children.contains(child)
         }
     }
+
     
     // MARK: - Toggle Folder（展開／折りたたみ）　トグル
     func toggleFolder(_ folder: Folder) {
@@ -1006,14 +1027,14 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
         // visibleFlattenedFolders を再構築
         let oldVisible = visibleFlattenedFolders
-        buildVisibleFlattenedFolders()
+        buildVisibleFlattenedFolders()  // ここで [Folder] に再構築
         let newVisible = visibleFlattenedFolders
         let startRow = normalBefore.count
 
         // 削除行
         var deleteIndexPaths: [IndexPath] = []
         for (i, f) in oldVisible.enumerated() {
-            if !newVisible.contains(where: { $0.folder == f.folder }) {
+            if !newVisible.contains(f) {
                 deleteIndexPaths.append(IndexPath(row: startRow + i, section: 0))
             }
         }
@@ -1021,7 +1042,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         // 追加行
         var insertIndexPaths: [IndexPath] = []
         for (i, f) in newVisible.enumerated() {
-            if !oldVisible.contains(where: { $0.folder == f.folder }) {
+            if !oldVisible.contains(f) {
                 insertIndexPaths.append(IndexPath(row: startRow + i, section: 0))
             }
         }
@@ -1032,7 +1053,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         tableView.endUpdates()
 
         // 矢印回転
-        if let index = newVisible.firstIndex(where: { $0.folder == folder }),
+        if let index = newVisible.firstIndex(of: folder),
            let cell = tableView.cellForRow(at: IndexPath(row: startRow + index, section: 0)) as? CustomCell {
             cell.rotateChevron(expanded: !currently)
         }
@@ -1073,7 +1094,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
     var sections: [SectionType] = [.normalBefore, .coreData, .normalAfter]
     
-    //セクション数
+    //セル個数
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         if isSearching {
             let level = sortedLevels[section]
@@ -1099,27 +1120,22 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
         let row = indexPath.row
         let coreDataStartIndex = normalBefore.count
-        let coreDataEndIndex = coreDataStartIndex + flattenedFolders.count
+        let coreDataEndIndex = coreDataStartIndex + visibleFlattenedFolders.count
 
         if row < normalBefore.count {
             // normalBefore
-            //print("NormalBefore tapped: \(normalBefore[row])")
             tableView.deselectRow(at: indexPath, animated: true)
 
         } else if row < coreDataEndIndex {
-            // coreData
-            let folderIndex = row - coreDataStartIndex
-            let folder = flattenedFolders[folderIndex]
-            //print("CoreData folder tapped: \(folder.folderName ?? "無題")")
+            // CoreData フォルダ
+            let folder = visibleFlattenedFolders[row - coreDataStartIndex]
 
             if isSelecting {
-                let folder = visibleFlattenedFolders[indexPath.row].folder  // ← タプルから Folder を取り出す
-
                 // トグル選択
                 if selectedFolders.contains(folder) {
                     selectedFolders.remove(folder)
                     if selectedFolders.isEmpty {
-                        self.isSelecting = false
+                        isSelecting = false
                         bottomToolbarState = .normal
                     }
                     print("Removed folder: \(folder.folderName ?? "")")
@@ -1127,19 +1143,18 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                     selectedFolders.insert(folder)
                     print("Added folder: \(folder.folderName ?? "")")
                 }
-                
+
                 tableView.reloadRows(at: [indexPath], with: .none)
-                
                 updateToolbar()
                 
             } else {
                 // 通常タップ: フォルダを開く
+                toggleFolder(folder)
             }
 
         } else {
             // normalAfter
             let afterIndex = row - coreDataEndIndex
-            //print("NormalAfter tapped: \(normalAfter[afterIndex])")
             tableView.deselectRow(at: indexPath, animated: true)
         }
     }
@@ -1169,8 +1184,8 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     var fetchedResultsController: NSFetchedResultsController<Folder>!
 
     // 通常時: 展開ツリー
-    var flattenedFolders: [(folder: Folder, level: Int)] = []
-    var visibleFlattenedFolders: [(folder: Folder, level: Int)] = []
+    // var flattenedFolders: [(folder: Folder, level: Int)] = []
+//     var visibleFlattenedFolders: [(folder: Folder, level: Int)] = []
     
     // 検索時: 階層ごとの分類
     var groupedByLevel: [Int64: [Folder]] = [:]
