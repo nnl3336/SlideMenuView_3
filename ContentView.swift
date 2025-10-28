@@ -104,6 +104,9 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         newFolder.parent = parent
         newFolder.sortIndex = Int64((parent.children?.count ?? 0))
         
+        // 👇 level を親 + 1 に設定
+        newFolder.level = (parent.level) + 1
+        
         do {
             try context.save()
             buildVisibleFlattenedFolders()
@@ -112,6 +115,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             print("Failed to add child folder:", error)
         }
     }
+
 
     
     // 選択処理
@@ -168,31 +172,39 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     
     func tableView(_ tableView: UITableView,
                    trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath)
-                   -> UISwipeActionsConfiguration? {
-
+    -> UISwipeActionsConfiguration? {
+        
         let row = indexPath.row
         let folderStartIndex = normalBefore.count
         let folderEndIndex = folderStartIndex + visibleFlattenedFolders.count
-
+        
         // CoreData フォルダ以外（normalBefore, normalAfter）はスワイプ不可
         guard row >= folderStartIndex && row < folderEndIndex else { return nil }
-
+        
         // タプルではなく Folder そのもの
         let folder = visibleFlattenedFolders[row - folderStartIndex]
-
+        
         // 削除アクション
         let deleteAction = UIContextualAction(style: .destructive, title: "削除") { action, view, completion in
-            self.deleteFolder(folder)
+            // 1. データから削除
+            if let index = self.visibleFlattenedFolders.firstIndex(of: folder) {
+                self.visibleFlattenedFolders.remove(at: index)
+            }
+            // 2. visibleFlattenedFolders を更新
+            self.buildVisibleFlattenedFolders()
+            // 3. tableView から削除（アニメーション付き）
+            tableView.deleteRows(at: [indexPath], with: .automatic)
+            
             completion(true)
         }
-
+        
         // 非表示アクション
         let hideAction = UIContextualAction(style: .normal, title: "非表示") { action, view, completion in
             self.hideFolder(folder)
             completion(true)
         }
         hideAction.backgroundColor = .gray
-
+        
         let configuration = UISwipeActionsConfiguration(actions: [deleteAction, hideAction])
         configuration.performsFirstActionWithFullSwipe = false
         return configuration
@@ -489,7 +501,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         view.addSubview(tableView)
     }
     
-    // MARK: - ＋ボタン押下でアラート表示
+    // MARK: - ＋ボタン押下でアラート表示 親フォルダ
     @objc private func addButtonTapped() {
         let alert = UIAlertController(title: "新しいフォルダ", message: "フォルダ名を入力してください", preferredStyle: .alert)
         alert.addTextField { textField in
@@ -521,17 +533,20 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         let newFolder = Folder(context: context)
         newFolder.folderName = name
         newFolder.parent = nil
+        newFolder.level = 0
         newFolder.sortIndex = (visibleFlattenedFolders.map { $0.sortIndex }.max() ?? 0) + 1
 
         do {
-            try context.save()  // Core Data に保存
-            
-            // 表示用配列にも追加（タプルではなく Folder 自体）
-            visibleFlattenedFolders.append(newFolder)
+            try context.save()
 
-            // テーブルに挿入
-            let newIndexPath = IndexPath(row: visibleFlattenedFolders.count - 1, section: 0)
-            tableView.insertRows(at: [newIndexPath], with: .automatic)
+            // ✅ Core Data保存後にfetchFoldersで最新化
+            fetchFolders()
+
+            // ✅ 末尾に追加されたフォルダへスクロール or アニメーション
+            if let lastIndex = visibleFlattenedFolders.indices.last {
+                let indexPath = IndexPath(row: normalBefore.count + lastIndex, section: 0)
+                tableView.scrollToRow(at: indexPath, at: .bottom, animated: true)
+            }
 
             print("📁 保存成功: \(name)")
         } catch {
@@ -639,17 +654,29 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
     // 再帰的に展開して visibleFlattenedFolders に追加
     private func buildVisibleFolders(from folders: [Folder]) {
-        for folder in folders {
+        // currentSort に応じたソート
+        let sortedFolders: [Folder]
+        switch currentSort {
+        case .order:
+            sortedFolders = folders.sorted { ascending ? $0.sortIndex < $1.sortIndex : $0.sortIndex > $1.sortIndex }
+        case .title:
+            sortedFolders = folders.sorted { ascending ? ($0.folderName ?? "") < ($1.folderName ?? "") : ($0.folderName ?? "") > ($1.folderName ?? "") }
+        case .createdAt:
+            sortedFolders = folders.sorted { ascending ? ($0.folderMadeTime ?? Date.distantPast) < ($1.folderMadeTime ?? Date.distantPast) : ($0.folderMadeTime ?? Date.distantPast) > ($1.folderMadeTime ?? Date.distantPast) }
+        case .currentDate:
+            sortedFolders = folders.sorted { ascending ? ($0.currentDate ?? Date.distantPast) < ($1.currentDate ?? Date.distantPast) : ($0.currentDate ?? Date.distantPast) > ($1.currentDate ?? Date.distantPast) }
+        }
+
+        for folder in sortedFolders {
             visibleFlattenedFolders.append(folder)
 
-            // 展開状態のフォルダだけ子フォルダを追加
             if expandedState[folder.uuid] == true,
                let children = folder.children as? Set<Folder> {
-                let sortedChildren = children.sorted { $0.sortIndex < $1.sortIndex }
-                buildVisibleFolders(from: sortedChildren)
+                buildVisibleFolders(from: Array(children))
             }
         }
     }
+
 
     private func flattenWithLevel(nodes: [Folder], level: Int = 0) -> [(folder: Folder, level: Int)] {
         var result: [(folder: Folder, level: Int)] = []
@@ -929,6 +956,9 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                 cell.chevronTapped = { [weak self] in
                     self?.toggleFolder(folder)
                 }
+                
+                cell.indentationLevel = Int(folder.level)
+                cell.indentationWidth = 20
 
                 return cell
             }
@@ -1148,14 +1178,9 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                 updateToolbar()
                 
             } else {
-                // 通常タップ: フォルダを開く
-                toggleFolder(folder)
+                // 通常タップ時は何もしない
+                tableView.deselectRow(at: indexPath, animated: true)
             }
-
-        } else {
-            // normalAfter
-            let afterIndex = row - coreDataEndIndex
-            tableView.deselectRow(at: indexPath, animated: true)
         }
     }
 
