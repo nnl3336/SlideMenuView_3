@@ -572,64 +572,101 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     private func fetchFolders(predicate: NSPredicate? = nil) {
         let request: NSFetchRequest<Folder> = Folder.fetchRequest()
         
-        // sortDescriptors を sortIndex を優先して設定
-        let sortKey: String
+        // 非表示を除外
+        let hiddenPredicate = NSPredicate(format: "isHidden == NO")
+        if let predicate = predicate {
+            request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [predicate, hiddenPredicate])
+        } else {
+            request.predicate = hiddenPredicate
+        }
+        
+        // ソート
+        let sortDescriptors: [NSSortDescriptor]
         switch currentSort {
         case .order:
-            sortKey = "sortIndex"
+            sortDescriptors = [NSSortDescriptor(key: "sortIndex", ascending: ascending)]
         case .title:
-            sortKey = "folderName"
-        case .createdAt:
-            sortKey = "folderMadeTime"
-        case .currentDate:
-            sortKey = "currentDate"
-        }
-
-        if currentSort == .order {
-            // 並び替えモード order のときは sortIndex のみ
-            request.sortDescriptors = [NSSortDescriptor(key: "sortIndex", ascending: ascending)]
-        } else {
-            // その他のモードのときは sortIndex を優先、さらにタイトルや日付でソート
-            request.sortDescriptors = [
+            sortDescriptors = [
+                NSSortDescriptor(key: "level", ascending: true),
                 NSSortDescriptor(key: "sortIndex", ascending: true),
-                NSSortDescriptor(key: sortKey, ascending: ascending)
+                NSSortDescriptor(key: "folderName", ascending: ascending)
             ]
-        }
-
-        if let predicate = predicate {
-            request.predicate = predicate
-        }
-
-        fetchedResultsController = NSFetchedResultsController(fetchRequest: request,
-                                                              managedObjectContext: context,
-                                                              sectionNameKeyPath: nil,
-                                                              cacheName: nil)
-        fetchedResultsController.delegate = self
-
-        do {
-            try fetchedResultsController.performFetch()
-
-            if isSearching {
-                groupFoldersByLevel()
-            } else {
-                //buildFlattenedFolders()
+        case .createdAt:
+            sortDescriptors = [
+                NSSortDescriptor(key: "level", ascending: true),
+                NSSortDescriptor(key: "sortIndex", ascending: true),
+                NSSortDescriptor(key: "folderMadeTime", ascending: ascending)
+            ]
+        case .currentDate:
+            sortDescriptors = [
+                NSSortDescriptor(key: "level", ascending: true),
+                NSSortDescriptor(key: "sortIndex", ascending: true),
+                NSSortDescriptor(key: "currentDate", ascending: ascending)
+            ]
+            request.sortDescriptors = sortDescriptors
+            
+            fetchedResultsController = NSFetchedResultsController(
+                fetchRequest: request,
+                managedObjectContext: context,
+                sectionNameKeyPath: nil,
+                cacheName: nil
+            )
+            fetchedResultsController.delegate = self
+            
+            do {
+                try fetchedResultsController.performFetch()
+                // 展開状態に応じて非表示の子を取り除く
+                filterExpandedFolders()
+                tableView.reloadData()
+            } catch {
+                print("Fetch failed: \(error)")
             }
-
-            tableView.reloadData()
-        } catch {
-            print("Fetch failed: \(error)")
         }
     }
+    private func filterExpandedFolders() {
+        guard let allFolders = fetchedResultsController.fetchedObjects else { return }
+
+        visibleFlattenedFolders = []
+
+        for folder in allFolders {
+            if folder.level == 0 {
+                appendFolderWithChildren(folder)
+            }
+        }
+    }
+
+    private func appendFolderWithChildren(_ folder: Folder) {
+        visibleFlattenedFolders.append(folder)
+
+        // 展開されている場合のみ子を追加
+        if folder.isExpanded, let children = folder.children as? Set<Folder> {
+            let sortedChildren = children.sorted { $0.sortIndex < $1.sortIndex }
+            for child in sortedChildren {
+                appendFolderWithChildren(child)
+            }
+        }
+    }
+
 
     // MARK: - 検索
 
     // MARK: - 検索時: 階層ごと表示
     
-    private func groupFoldersByLevel() {
+    /*private func groupFoldersByLevel() {
         guard let folders = fetchedResultsController.fetchedObjects else { return }
         groupedByLevel = Dictionary(grouping: folders, by: { Int64($0.level) })
         sortedLevels = groupedByLevel.keys.sorted()
+    }*/
+    private func groupFoldersByLevel() {
+        guard let folders = fetchedResultsController.fetchedObjects, !folders.isEmpty else {
+            groupedByLevel = [:]
+            sortedLevels = []
+            return
+        }
+        groupedByLevel = Dictionary(grouping: folders, by: { Int64($0.level) })
+        sortedLevels = groupedByLevel.keys.sorted()
     }
+
 
     // MARK: - 通常時: 展開構造
     
@@ -648,6 +685,32 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         visibleFlattenedFolders = []
         buildVisibleFolders(from: rootFolders)
     }*/
+    private func buildVisibleFlattenedFolders() {
+        visibleFlattenedFolders = []
+
+        // 全フォルダを取得
+        guard let folders = fetchedResultsController.fetchedObjects else { return }
+
+        // 親フォルダから順に flatten
+        for folder in folders where folder.parent == nil && !folder.isHidden {
+            appendVisible(folder)
+        }
+    }
+
+    private func appendVisible(_ folder: Folder) {
+        visibleFlattenedFolders.append(folder)
+
+        // 展開されている場合のみ子を追加
+        if folder.isExpanded {
+            let sortedChildren = (folder.children as? Set<Folder>)?
+                .filter { !$0.isHidden }
+                .sorted { $0.sortIndex < $1.sortIndex } ?? []
+            for child in sortedChildren {
+                appendVisible(child)
+            }
+        }
+    }
+
 
     // 再帰的に展開して visibleFlattenedFolders に追加
     private func buildVisibleFolders(from folders: [Folder]) {
@@ -688,7 +751,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         return result
     }
 
-    private func buildVisibleFlattenedFolders() {
+    /*private func buildVisibleFlattenedFolders() {
         var result: [Folder] = []
 
         func addChildren(of folder: Folder) {
@@ -714,7 +777,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         }
 
         visibleFlattenedFolders = result
-    }
+    }*/
 
     func isVisible(_ folder: Folder) -> Bool {
         var parent = folder.parent
