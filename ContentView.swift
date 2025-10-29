@@ -27,16 +27,13 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         setupUI()
         fetchFolders()
         setupSearchAndSortHeader()
-        // 通常セル用
-        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "Cell")
         
-        // カスタムセル用
-        tableView.register(CustomCell.self, forCellReuseIdentifier: CustomCell.reuseID)
-        
-        loadExpandedState()
+        //loadExpandedState()
         
         // 取得後に展開状態を反映して flattenedFolders を作る
         buildFlattenedFolders()
+        
+        //
         
         // テーブルビューをリロード
         tableView.reloadData()
@@ -104,9 +101,12 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         newFolder.parent = parent
         newFolder.sortIndex = Int64((parent.children?.count ?? 0))
         
+        // 親がいれば親の level + 1、親がいなければ 0
+        newFolder.level = (parent.level) + 1
+        
         do {
             try context.save()
-            buildVisibleFlattenedFolders()
+            buildVisibleFlattenedFolders() // これで level が反映された状態で表示
             tableView.reloadData()
         } catch {
             print("Failed to add child folder:", error)
@@ -421,6 +421,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                 self.currentSort = .order
                 self.tableView.setEditing(true, animated: true)
                 self.tableView.allowsSelectionDuringEditing = true
+                         self.fetchFolders()
                 self.sortButton?.menu = self.makeSortMenu()
             },
             
@@ -481,6 +482,12 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         tableView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         tableView.dataSource = self
         tableView.delegate = self
+        
+        // 通常セル用
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "Cell")
+        // カスタムセル用
+        tableView.register(CustomCell.self, forCellReuseIdentifier: CustomCell.reuseID)
+        
         view.addSubview(tableView)
     }
     
@@ -555,42 +562,34 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     private func fetchFolders(predicate: NSPredicate? = nil) {
         let request: NSFetchRequest<Folder> = Folder.fetchRequest()
         
-        // sortKey を currentSort に応じて決定
+        // sortDescriptors のキーを currentSort に応じて決定
         let sortKey: String
-        var useStringSelector = false
-        
         switch currentSort {
         case .order:
             sortKey = "sortIndex"
         case .title:
             sortKey = "folderName"
-            useStringSelector = true // 文字列なので比較関数を指定
         case .createdAt:
             sortKey = "folderMadeTime"
         case .currentDate:
             sortKey = "currentDate"
         }
-        
-        let sortDescriptor: NSSortDescriptor
-        if useStringSelector {
-            sortDescriptor = NSSortDescriptor(
-                key: sortKey,
-                ascending: ascending,
-                selector: #selector(NSString.localizedCaseInsensitiveCompare(_:))
-            )
+
+        // sortDescriptors 設定
+        if currentSort == .order {
+            // 順番モードは sortIndex でソート
+            request.sortDescriptors = [NSSortDescriptor(key: sortKey, ascending: ascending)]
         } else {
-            sortDescriptor = NSSortDescriptor(
-                key: sortKey,
-                ascending: ascending
-            )
+            // その他モードは sortKey のみでソート
+            request.sortDescriptors = [NSSortDescriptor(key: sortKey, ascending: ascending)]
         }
-        
-        request.sortDescriptors = [sortDescriptor]
-        
+
+        // 検索条件があれば設定
         if let predicate = predicate {
             request.predicate = predicate
         }
-        
+
+        // FRC 設定
         fetchedResultsController = NSFetchedResultsController(
             fetchRequest: request,
             managedObjectContext: context,
@@ -598,16 +597,16 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             cacheName: nil
         )
         fetchedResultsController.delegate = self
-        
+
         do {
             try fetchedResultsController.performFetch()
-            
+
             if isSearching {
                 groupFoldersByLevel()
             } else {
                 buildFlattenedFolders()
             }
-            
+
             tableView.reloadData()
         } catch {
             print("Fetch failed: \(error)")
@@ -632,10 +631,10 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         // ルートフォルダだけ抽出
         var rootFolders = allFolders.filter { $0.parent == nil }
 
-        if currentSort == .order {
+        /*if currentSort == .order {
             // order モードのときは sortIndex で並び替え
             rootFolders.sort { $0.sortIndex < $1.sortIndex }
-        }
+        }*/
 
         // visibleFlattenedFolders を再構築
         visibleFlattenedFolders = []
@@ -644,19 +643,32 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
     // 再帰的に展開して visibleFlattenedFolders に追加
     private func buildVisibleFolders(from folders: [Folder]) {
-        for folder in folders {
+        // まず現在の並び順で folders をソート
+        let sortedFolders: [Folder] = {
+            switch currentSort {
+            case .order:
+                return folders.sorted { ascending ? $0.sortIndex < $1.sortIndex : $0.sortIndex > $1.sortIndex }
+            case .title:
+                return folders.sorted { ascending ? ($0.folderName ?? "") < ($1.folderName ?? "") : ($0.folderName ?? "") > ($1.folderName ?? "") }
+            case .createdAt:
+                return folders.sorted { ascending ? ($0.folderMadeTime ?? Date.distantPast) < ($1.folderMadeTime ?? Date.distantPast) : ($0.folderMadeTime ?? Date.distantPast) > ($1.folderMadeTime ?? Date.distantPast) }
+            case .currentDate:
+                return folders.sorted { ascending ? ($0.currentDate ?? Date.distantPast) < ($1.currentDate ?? Date.distantPast) : ($0.currentDate ?? Date.distantPast) > ($1.currentDate ?? Date.distantPast) }
+            }
+        }()
+
+        for folder in sortedFolders {
             visibleFlattenedFolders.append(folder)
 
             // 展開状態のフォルダだけ子フォルダを追加
             if expandedState[folder.uuid] == true,
                let children = folder.children as? Set<Folder> {
-                let sortedChildren = children.sorted { $0.sortIndex < $1.sortIndex }
-                buildVisibleFolders(from: sortedChildren)
+                buildVisibleFolders(from: Array(children))
             }
         }
     }
 
-    private func flattenWithLevel(nodes: [Folder], level: Int = 0) -> [(folder: Folder, level: Int)] {
+    /*private func flattenWithLevel(nodes: [Folder], level: Int = 0) -> [(folder: Folder, level: Int)] {
         var result: [(folder: Folder, level: Int)] = []
 
         let sortedNodes: [Folder]
@@ -679,7 +691,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         }
 
         return result
-    }
+    }*/
 
     private func buildVisibleFlattenedFolders() {
         var result: [Folder] = []
@@ -690,7 +702,20 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             // 展開状態のフォルダだけ子フォルダを追加
             if expandedState[folder.uuid] == true,
                let children = folder.children as? Set<Folder> {
-                let sortedChildren = children.sorted { $0.sortIndex < $1.sortIndex }
+                // currentSort と ascending に応じて並び替え
+                let sortedChildren: [Folder] = {
+                    switch currentSort {
+                    case .order:
+                        return children.sorted { ascending ? $0.sortIndex < $1.sortIndex : $0.sortIndex > $1.sortIndex }
+                    case .title:
+                        return children.sorted { ascending ? ($0.folderName ?? "") < ($1.folderName ?? "") : ($0.folderName ?? "") > ($1.folderName ?? "") }
+                    case .createdAt:
+                        return children.sorted { ascending ? ($0.folderMadeTime ?? Date.distantPast) < ($1.folderMadeTime ?? Date.distantPast) : ($0.folderMadeTime ?? Date.distantPast) > ($1.folderMadeTime ?? Date.distantPast) }
+                    case .currentDate:
+                        return children.sorted { ascending ? ($0.currentDate ?? Date.distantPast) < ($1.currentDate ?? Date.distantPast) : ($0.currentDate ?? Date.distantPast) > ($1.currentDate ?? Date.distantPast) }
+                    }
+                }()
+
                 for child in sortedChildren {
                     addChildren(of: child)
                 }
@@ -700,7 +725,19 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         // Core Data から直接ルートフォルダを取得
         guard let allFolders = fetchedResultsController.fetchedObjects else { return }
         let rootFolders = allFolders.filter { $0.parent == nil }
-        let sortedRoots = rootFolders.sorted { $0.sortIndex < $1.sortIndex }
+
+        let sortedRoots: [Folder] = {
+            switch currentSort {
+            case .order:
+                return rootFolders.sorted { ascending ? $0.sortIndex < $1.sortIndex : $0.sortIndex > $1.sortIndex }
+            case .title:
+                return rootFolders.sorted { ascending ? ($0.folderName ?? "") < ($1.folderName ?? "") : ($0.folderName ?? "") > ($1.folderName ?? "") }
+            case .createdAt:
+                return rootFolders.sorted { ascending ? ($0.folderMadeTime ?? Date.distantPast) < ($1.folderMadeTime ?? Date.distantPast) : ($0.folderMadeTime ?? Date.distantPast) > ($1.folderMadeTime ?? Date.distantPast) }
+            case .currentDate:
+                return rootFolders.sorted { ascending ? ($0.currentDate ?? Date.distantPast) < ($1.currentDate ?? Date.distantPast) : ($0.currentDate ?? Date.distantPast) > ($1.currentDate ?? Date.distantPast) }
+            }
+        }()
 
         for root in sortedRoots {
             addChildren(of: root)
@@ -708,6 +745,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
         visibleFlattenedFolders = result
     }
+
 
     func isVisible(_ folder: Folder) -> Bool {
         var parent = folder.parent
@@ -1163,6 +1201,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             tableView.deselectRow(at: indexPath, animated: true)
         }
     }
+    
 
     
     
@@ -1171,6 +1210,11 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     
 
     // MARK: - UISearchBarDelegate　デリゲート
+    
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        // テーブルビューのスクロール開始時にキーボードを閉じる
+        view.endEditing(true)
+    }
 
     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
         if searchText.isEmpty {
