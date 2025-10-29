@@ -1201,7 +1201,6 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             tableView.deselectRow(at: indexPath, animated: true)
         }
     }
-    
 
     
     
