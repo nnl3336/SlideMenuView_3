@@ -38,6 +38,8 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         // テーブルビューをリロード
         tableView.reloadData()
         
+        // ツールバーを更新
+        updateToolbar()
     }
     
     //***
@@ -472,24 +474,41 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     private func setupUI() {
         view.backgroundColor = .systemBackground
         
-        // 🔹 Navigation Bar に + ボタンを追加
+        // Navigation Bar の + ボタン
         navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .add,
                                                             target: self,
                                                             action: #selector(addButtonTapped))
         
-        // 🔹 TableView 設置
+        // TableView 設置
         tableView = UITableView(frame: view.bounds, style: .insetGrouped)
         tableView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         tableView.dataSource = self
         tableView.delegate = self
-        
-        // 通常セル用
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "Cell")
-        // カスタムセル用
         tableView.register(CustomCell.self, forCellReuseIdentifier: CustomCell.reuseID)
-        
         view.addSubview(tableView)
+        
+        // 🔹 ツールバー追加
+        bottomToolbar.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(bottomToolbar)
+        
+        //
+        
+        tableView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            tableView.topAnchor.constraint(equalTo: view.topAnchor),
+            tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            tableView.bottomAnchor.constraint(equalTo: bottomToolbar.topAnchor) // ←ここがポイント
+        ])
+        
+        NSLayoutConstraint.activate([
+            bottomToolbar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bottomToolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            bottomToolbar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor)
+        ])
     }
+    
     
     // MARK: - ＋ボタン押下でアラート表示
     @objc private func addButtonTapped() {
