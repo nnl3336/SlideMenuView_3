@@ -317,12 +317,12 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             let edit = UIBarButtonItem(barButtonSystemItem: .edit, target: self, action: #selector(startEditing))
             bottomToolbar.setItems([edit], animated: false)
             
-        case .selecting:
+        case .editing:
             bottomToolbar.isHidden = false
             let cancel = UIBarButtonItem(barButtonSystemItem: .cancel, target: self, action: #selector(editCancelEdit))
             bottomToolbar.setItems([cancel], animated: false)
             
-        case .editing:
+        case .selecting:
             bottomToolbar.isHidden = false
             let cancel = UIBarButtonItem(barButtonSystemItem: .cancel, target: self, action: #selector(selectCancelEdit))
             if selectedFolders.isEmpty {
