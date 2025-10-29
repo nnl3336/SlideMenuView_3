@@ -381,65 +381,60 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         updateToolbar()
     }
     
-    // MARK: - 並べ替えメニュー生成
+    // MARK: - 並べ替えメニュー生成　並び替えメニュー
     func makeSortMenu() -> UIMenu {
         return UIMenu(title: "並び替え", children: [
+            // 作成日
             UIAction(title: "作成日", image: UIImage(systemName: "calendar"),
                      state: currentSort == .createdAt ? .on : .off) { [weak self] _ in
-                         guard let self = self else { return }
-                         self.currentSort = .createdAt
-                         self.fetchFolders()
-                         // 編集モードを解除
-                         self.tableView.setEditing(false, animated: true)
-                         if let button = self.sortButton { button.menu = self.makeSortMenu() }
-                     },
+                guard let self = self else { return }
+                self.currentSort = .createdAt
+                self.fetchFolders()
+                self.tableView.setEditing(false, animated: true)
+                self.sortButton?.menu = self.makeSortMenu()
+            },
             
+            // 名前
             UIAction(title: "名前", image: UIImage(systemName: "textformat"),
                      state: currentSort == .title ? .on : .off) { [weak self] _ in
-                         guard let self = self else { return }
-                         self.currentSort = .title
-                         self.fetchFolders()
-                         self.tableView.setEditing(false, animated: true)
-                         if let button = self.sortButton { button.menu = self.makeSortMenu() }
-                     },
+                guard let self = self else { return }
+                self.currentSort = .title
+                self.fetchFolders()
+                self.tableView.setEditing(false, animated: true)
+                self.sortButton?.menu = self.makeSortMenu()
+            },
             
+            // 追加日
             UIAction(title: "追加日", image: UIImage(systemName: "clock"),
                      state: currentSort == .currentDate ? .on : .off) { [weak self] _ in
-                         guard let self = self else { return }
-                         self.currentSort = .currentDate
-                         self.fetchFolders()
-                         self.tableView.setEditing(false, animated: true)
-                         if let button = self.sortButton { button.menu = self.makeSortMenu() }
-                     },
-            // 1. UIAction 内で編集モードに切り替え
+                guard let self = self else { return }
+                self.currentSort = .currentDate
+                self.fetchFolders()
+                self.tableView.setEditing(false, animated: true)
+                self.sortButton?.menu = self.makeSortMenu()
+            },
+            
+            // 順番（ドラッグで並べ替え）
             UIAction(title: "順番", image: UIImage(systemName: "list.number"),
                      state: currentSort == .order ? .on : .off) { [weak self] _ in
                 guard let self = self else { return }
                 self.currentSort = .order
-                
-                // fetchFolders() は呼ばない！
-                // self.fetchFolders()
-                
-                // 編集モードを有効化
-                tableView.setEditing(true, animated: true)
-                tableView.allowsSelectionDuringEditing = true
-                
-                if let button = self.sortButton {
-                    button.menu = self.makeSortMenu()
-                }
+                self.tableView.setEditing(true, animated: true)
+                self.tableView.allowsSelectionDuringEditing = true
+                self.sortButton?.menu = self.makeSortMenu()
             },
             
-            
+            // 昇順/降順切替
             UIAction(title: ascending ? "昇順 (A→Z)" : "降順 (Z→A)",
                      image: UIImage(systemName: "arrow.up.arrow.down")) { [weak self] _ in
-                         guard let self = self else { return }
-                         self.ascending.toggle()
-                         self.fetchFolders()
-                         if let button = self.sortButton { button.menu = self.makeSortMenu() }
-                     }
+                guard let self = self else { return }
+                self.ascending.toggle()
+                self.fetchFolders()
+                self.sortButton?.menu = self.makeSortMenu()
+            }
         ])
     }
-    
+
     private func setupSearchAndSortHeader() {
         sortButton = UIButton(type: .system)
         sortButton.setTitle("並び替え", for: .normal)
@@ -560,49 +555,59 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     private func fetchFolders(predicate: NSPredicate? = nil) {
         let request: NSFetchRequest<Folder> = Folder.fetchRequest()
         
-        // sortDescriptors を sortIndex を優先して設定
+        // sortKey を currentSort に応じて決定
         let sortKey: String
+        var useStringSelector = false
+        
         switch currentSort {
         case .order:
             sortKey = "sortIndex"
         case .title:
             sortKey = "folderName"
+            useStringSelector = true // 文字列なので比較関数を指定
         case .createdAt:
             sortKey = "folderMadeTime"
         case .currentDate:
             sortKey = "currentDate"
         }
-
-        if currentSort == .order {
-            // 並び替えモード order のときは sortIndex のみ
-            request.sortDescriptors = [NSSortDescriptor(key: "sortIndex", ascending: ascending)]
+        
+        let sortDescriptor: NSSortDescriptor
+        if useStringSelector {
+            sortDescriptor = NSSortDescriptor(
+                key: sortKey,
+                ascending: ascending,
+                selector: #selector(NSString.localizedCaseInsensitiveCompare(_:))
+            )
         } else {
-            // その他のモードのときは sortIndex を優先、さらにタイトルや日付でソート
-            request.sortDescriptors = [
-                NSSortDescriptor(key: "sortIndex", ascending: true),
-                NSSortDescriptor(key: sortKey, ascending: ascending)
-            ]
+            sortDescriptor = NSSortDescriptor(
+                key: sortKey,
+                ascending: ascending
+            )
         }
-
+        
+        request.sortDescriptors = [sortDescriptor]
+        
         if let predicate = predicate {
             request.predicate = predicate
         }
-
-        fetchedResultsController = NSFetchedResultsController(fetchRequest: request,
-                                                              managedObjectContext: context,
-                                                              sectionNameKeyPath: nil,
-                                                              cacheName: nil)
+        
+        fetchedResultsController = NSFetchedResultsController(
+            fetchRequest: request,
+            managedObjectContext: context,
+            sectionNameKeyPath: nil,
+            cacheName: nil
+        )
         fetchedResultsController.delegate = self
-
+        
         do {
             try fetchedResultsController.performFetch()
-
+            
             if isSearching {
                 groupFoldersByLevel()
             } else {
                 buildFlattenedFolders()
             }
-
+            
             tableView.reloadData()
         } catch {
             print("Fetch failed: \(error)")
