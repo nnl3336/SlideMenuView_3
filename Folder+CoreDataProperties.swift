@@ -24,6 +24,8 @@ extension Folder {
     @NSManaged public var children: NSSet?
     @NSManaged public var parent: Folder?
     @NSManaged public var id: UUID?
+    @NSManaged public var isHide: Bool
+    @NSManaged public var isDust: Bool
 
 }
 

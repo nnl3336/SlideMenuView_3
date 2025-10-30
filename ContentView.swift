@@ -203,24 +203,21 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
 
     // フォルダを削除する
-    private func deleteFolder(_ folder: Folder) {
-        // Folder 自体を検索
-        guard let index = visibleFlattenedFolders.firstIndex(of: folder) else { return }
+    func deleteFolder(_ folder: Folder) {
+        // 1️⃣ データソースの削除
+        if let index = visibleFlattenedFolders.firstIndex(of: folder) {
+            visibleFlattenedFolders.remove(at: index)
 
-        // 子フォルダのインデックスも取得
-        let rowsToDelete = [index] + childIndexes(of: folder)
-
-        // 大きい順に削除（インデックスずれ防止）
-        for row in rowsToDelete.sorted(by: >) {
-            visibleFlattenedFolders.remove(at: row)
+            // 2️⃣ TableView から削除
+            let indexPath = IndexPath(row: index + normalBefore.count, section: 0)
+            tableView.deleteRows(at: [indexPath], with: .automatic)
         }
 
-        tableView.deleteRows(at: rowsToDelete.map { IndexPath(row: $0, section: 0) }, with: .automatic)
-
-        // Core Data からも削除
+        // 3️⃣ Core Data 側も削除
         context.delete(folder)
         try? context.save()
     }
+
 
     // フォルダを非表示にする
     private func hideFolder(_ folder: Folder) {
@@ -228,12 +225,19 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
         let rowsToHide = [index] + childIndexes(of: folder)
 
+        // TableView上での実際の位置を補正
+        let folderStartIndex = normalBefore.count
+        let indexPaths = rowsToHide.map {
+            IndexPath(row: $0 + folderStartIndex, section: 0)
+        }
+
         for row in rowsToHide.sorted(by: >) {
             visibleFlattenedFolders.remove(at: row)
         }
 
-        tableView.deleteRows(at: rowsToHide.map { IndexPath(row: $0, section: 0) }, with: .automatic)
+        tableView.deleteRows(at: indexPaths, with: .automatic)
     }
+
 
 
 
@@ -335,10 +339,11 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     }
     // MARK: - Actions
     @objc private func startEditing() {
-        bottomToolbarState = .selecting
-        isHideMode = true
+        bottomToolbarState = .editing
+        //isHideMode = true
         
-        tableView.setEditing(true, animated: true)  // ← 編集モードに切り替え
+        //tableView.setEditing(true, animated: true)  // ← 編集モードに切り替え
+        //tableView.reloadData()
         tableView.reloadData()
     }
     @objc private func editCancelEdit() {
@@ -423,7 +428,8 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                 self.currentSort = .order
                 self.tableView.setEditing(true, animated: true)
                 self.tableView.allowsSelectionDuringEditing = true
-                         self.fetchFolders()
+                         self.bottomToolbarState = .editing
+                self.fetchFolders()
                 self.sortButton?.menu = self.makeSortMenu()
             },
             
@@ -605,7 +611,16 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
         // 検索条件があれば設定
         if let predicate = predicate {
-            request.predicate = predicate
+            if bottomToolbarState == .editing {
+                let editingPredicate = NSPredicate(format: "isHide == NO AND isDust == NO")
+                request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [predicate, editingPredicate])
+            } else {
+                request.predicate = predicate
+            }
+        } else {
+            if bottomToolbarState == .editing {
+                request.predicate = NSPredicate(format: "isHide == NO AND isDust == NO")
+            }
         }
 
         // FRC 設定
@@ -927,7 +942,6 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
     //セル表示
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        
         if isSearching {
             let level = sortedLevels[indexPath.section]
             guard let folders = groupedByLevel[level], indexPath.row < folders.count else {
@@ -993,13 +1007,27 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                 cell.chevronTapped = { [weak self] in
                     self?.toggleFolder(folder)
                 }
-                
+
+                // ✅ 編集モードのときだけスイッチを表示
                 if bottomToolbarState == .editing {
-                    cell.accessoryView = hideSwitch
+                    cell.accessoryView = cell.hideSwitch
+                    cell.hideSwitch.isOn = folder.isHide
+                    cell.hideSwitchChanged = { [weak self] isOn in
+                        guard let self = self else { return }
+                        folder.isHide = isOn
+
+                        // 明示的に context を取得して保存
+                        //if let context = folder.managedObjectContext {
+                            do {
+                                try context.save()
+                                print("✅ isHide 保存成功 (\(isOn))")
+                            } catch {
+                                print("❌ isHide 保存失敗:", error)
+                            }
+                    }
                 } else {
                     cell.accessoryView = nil
                 }
-
 
                 return cell
             }
@@ -1011,7 +1039,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             return cell
         }
     }
-    
+
     private let hideSwitch = UISwitch()
     
     var isHide: Bool = false {

@@ -20,12 +20,12 @@ final class CustomCell: UITableViewCell {
     private var level: Int = 0
     private var hasChildren: Bool = false
 
-    //private let hideSwitch = UISwitch()
-    //var hideSwitchChanged: ((Bool) -> Void)?
+    /*private*/ let hideSwitch = UISwitch()
+    var hideSwitchChanged: ((Bool) -> Void)?
     
-    /*var isHide: Bool = false {
+    var isHide: Bool = false {
         didSet { hideSwitch.isOn = isHide }
-    }*/
+    }
 
     //***
     
@@ -38,10 +38,10 @@ final class CustomCell: UITableViewCell {
     
     //***
     
-    /*@objc private func switchChanged() {
+    @objc private func switchChanged() {
         isHide = hideSwitch.isOn
         hideSwitchChanged?(isHide)  // 🔹 ここで ViewController に通知
-    }*/
+    }
 
     private func setupViews() {
         folderIcon.translatesAutoresizingMaskIntoConstraints = false
@@ -61,6 +61,10 @@ final class CustomCell: UITableViewCell {
         contentView.addSubview(folderIcon)
         contentView.addSubview(titleLabel)
         contentView.addSubview(chevronIcon)
+        
+        hideSwitch.addTarget(self, action: #selector(switchChanged), for: .valueChanged)
+
+        
 
         leadingConstraint = folderIcon.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16)
         NSLayoutConstraint.activate([
@@ -86,7 +90,7 @@ final class CustomCell: UITableViewCell {
         chevronTapped?()
     }
 
-    func configureCell(name: String, level: Int, isExpanded: Bool, hasChildren: Bool, systemName: String, tintColor: UIColor) {
+    func configureCell(name: String, level: Int, isExpanded: Bool, hasChildren: Bool, systemName: String, tintColor: UIColor, isHide: Bool = false) {
         titleLabel.text = name
         self.level = level
         self.hasChildren = hasChildren
@@ -97,11 +101,14 @@ final class CustomCell: UITableViewCell {
         chevronIcon.isHidden = !hasChildren
         chevronIcon.tintColor = tintColor
         chevronIcon.image = UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate)
-        
+
         // 展開状態に応じて transform
         chevronIcon.transform = isExpanded ? CGAffineTransform(rotationAngle: .pi/2) : .identity
 
         leadingConstraint.constant = 16 + CGFloat(level * 20)
+
+        // 🔹 スイッチ値を反映
+        self.isHide = isHide
     }
 
     func rotateChevron(expanded: Bool, animated: Bool = true) {
