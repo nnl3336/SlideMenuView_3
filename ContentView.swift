@@ -344,6 +344,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         
         //tableView.setEditing(true, animated: true)  // ← 編集モードに切り替え
         //tableView.reloadData()
+        fetchFolders()
         tableView.reloadData()
     }
     @objc private func editCancelEdit() {
@@ -584,6 +585,8 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
     // MARK: - Fetch　frc
     
+    var predicates: [NSPredicate] = []
+    
     private func fetchFolders(predicate: NSPredicate? = nil) {
         let request: NSFetchRequest<Folder> = Folder.fetchRequest()
         
@@ -601,27 +604,30 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         }
 
         // sortDescriptors 設定
-        if currentSort == .order {
+        /*if currentSort == .order {
             // 順番モードは sortIndex でソート
             request.sortDescriptors = [NSSortDescriptor(key: sortKey, ascending: ascending)]
         } else {
             // その他モードは sortKey のみでソート
             request.sortDescriptors = [NSSortDescriptor(key: sortKey, ascending: ascending)]
-        }
+        }*/
+        request.sortDescriptors = [NSSortDescriptor(key: sortKey, ascending: ascending)]
 
         // 検索条件があれば設定
+        /*if let predicate = predicate {
+            if bottomToolbarState != .editing {
+                request.predicate = NSPredicate(format: "isHide == %@", NSNumber(value: false))
+            }
+        }*/
         if let predicate = predicate {
-            if bottomToolbarState == .editing {
-                let editingPredicate = NSPredicate(format: "isHide == NO AND isDust == NO")
-                request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [predicate, editingPredicate])
-            } else {
-                request.predicate = predicate
-            }
-        } else {
-            if bottomToolbarState == .editing {
-                request.predicate = NSPredicate(format: "isHide == NO AND isDust == NO")
-            }
+            predicates.append(predicate)
         }
+
+        // 編集中でなければ isHide フィルタを追加
+        if bottomToolbarState != .editing {
+            predicates.append(NSPredicate(format: "isHide == %@", NSNumber(value: false)))
+        }
+
 
         // FRC 設定
         fetchedResultsController = NSFetchedResultsController(
@@ -660,7 +666,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     // MARK: - 通常時: 展開構造
     
     private func buildFlattenedFolders() {
-        guard let allFolders = fetchedResultsController.fetchedObjects else { return }
+        let allFolders = (fetchedResultsController.fetchedObjects ?? []).filter { !$0.isHide }
 
         // ルートフォルダだけ抽出
         var rootFolders = allFolders.filter { $0.parent == nil }
@@ -1039,6 +1045,17 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             return cell
         }
     }
+    
+    /*func updateVisibleFolders() {
+        if bottomToolbarState == .editing {
+            // 全部表示
+            visibleFlattenedFolders = flattenFolders(allFolders)
+        } else {
+            // isHide==false のみ
+            visibleFlattenedFolders = flattenFolders(allFolders).filter { !$0.isHide }
+        }
+        tableView.reloadData()
+    }*/
 
     private let hideSwitch = UISwitch()
     
