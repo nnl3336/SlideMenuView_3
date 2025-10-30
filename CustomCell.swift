@@ -20,12 +20,28 @@ final class CustomCell: UITableViewCell {
     private var level: Int = 0
     private var hasChildren: Bool = false
 
+    //private let hideSwitch = UISwitch()
+    //var hideSwitchChanged: ((Bool) -> Void)?
+    
+    /*var isHide: Bool = false {
+        didSet { hideSwitch.isOn = isHide }
+    }*/
+
+    //***
+    
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         setupViews()
     }
 
     required init?(coder: NSCoder) { fatalError() }
+    
+    //***
+    
+    /*@objc private func switchChanged() {
+        isHide = hideSwitch.isOn
+        hideSwitchChanged?(isHide)  // 🔹 ここで ViewController に通知
+    }*/
 
     private func setupViews() {
         folderIcon.translatesAutoresizingMaskIntoConstraints = false

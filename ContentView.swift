@@ -927,6 +927,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
     //セル表示
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        
         if isSearching {
             let level = sortedLevels[indexPath.section]
             guard let folders = groupedByLevel[level], indexPath.row < folders.count else {
@@ -952,6 +953,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                 : .clear
 
             return cell
+            
         } else {
             let row = indexPath.row
 
@@ -991,6 +993,13 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                 cell.chevronTapped = { [weak self] in
                     self?.toggleFolder(folder)
                 }
+                
+                if bottomToolbarState == .editing {
+                    cell.accessoryView = hideSwitch
+                } else {
+                    cell.accessoryView = nil
+                }
+
 
                 return cell
             }
@@ -1002,7 +1011,21 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             return cell
         }
     }
-
+    
+    private let hideSwitch = UISwitch()
+    
+    var isHide: Bool = false {
+        didSet { hideSwitch.isOn = isHide }
+    }
+    
+    @objc private func switchChanged() {
+        isHide = hideSwitch.isOn
+        hideSwitchChanged?(isHide)  // 🔹 ここで ViewController に通知
+    }
+    
+    var hideSwitchChanged: ((Bool) -> Void)?
+    
+    
 
     
     
