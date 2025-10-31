@@ -314,6 +314,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     
     ///***
     
+    //切り替えボタン
     private func updateToolbar() {
         switch bottomToolbarState {
         case .normal:
@@ -323,12 +324,12 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             
         case .editing:
             bottomToolbar.isHidden = false
-            let cancel = UIBarButtonItem(barButtonSystemItem: .cancel, target: self, action: #selector(editCancelEdit))
+            let cancel = UIBarButtonItem(barButtonSystemItem: .cancel, target: self, action: #selector(editCancel))
             bottomToolbar.setItems([cancel], animated: false)
             
         case .selecting:
             bottomToolbar.isHidden = false
-            let cancel = UIBarButtonItem(barButtonSystemItem: .cancel, target: self, action: #selector(selectCancelEdit))
+            let cancel = UIBarButtonItem(barButtonSystemItem: .cancel, target: self, action: #selector(selectCancel))
             if selectedFolders.isEmpty {
                 bottomToolbar.setItems([cancel], animated: false)
             } else {
@@ -347,7 +348,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         fetchFolders()
         tableView.reloadData()
     }
-    @objc private func editCancelEdit() {
+    @objc private func selectCancel() {
         isHideMode = false
         // 選択アイテムをクリア
         selectedFolders.removeAll()
@@ -361,12 +362,14 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         // ツールバーを更新
         updateToolbar()
     }
-    @objc private func selectCancelEdit() {
+    @objc private func editCancel() {
         // 選択アイテムをクリア
-        selectedFolders.removeAll()
+        //selectedFolders.removeAll()
         
         // bottomToolbarState を通常に戻す
         bottomToolbarState = .normal
+        
+        //fetchFolders()
         
         // テーブルの選択状態もリセット
         tableView.reloadData()
@@ -666,20 +669,23 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     // MARK: - 通常時: 展開構造
     
     private func buildFlattenedFolders() {
-        let allFolders = (fetchedResultsController.fetchedObjects ?? []).filter { !$0.isHide }
+        let allFolders: [Folder]
+        if bottomToolbarState == .editing {
+            // 編集中は全フォルダを表示
+            allFolders = fetchedResultsController.fetchedObjects ?? []
+        } else {
+            // 通常モードは非表示を除外
+            allFolders = (fetchedResultsController.fetchedObjects ?? []).filter { !$0.isHide }
+        }
 
         // ルートフォルダだけ抽出
-        var rootFolders = allFolders.filter { $0.parent == nil }
-
-        /*if currentSort == .order {
-            // order モードのときは sortIndex で並び替え
-            rootFolders.sort { $0.sortIndex < $1.sortIndex }
-        }*/
+        let rootFolders = allFolders.filter { $0.parent == nil }
 
         // visibleFlattenedFolders を再構築
         visibleFlattenedFolders = []
         buildVisibleFolders(from: rootFolders)
     }
+
 
     // 再帰的に展開して visibleFlattenedFolders に追加
     private func buildVisibleFolders(from folders: [Folder]) {
