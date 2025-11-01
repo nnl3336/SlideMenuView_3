@@ -26,7 +26,7 @@ extension Folder {
     @NSManaged public var id: UUID?
     @NSManaged public var isHide: Bool
     @NSManaged public var isDust: Bool
-    @NSManaged public var isExpanded: Bool
+    //@NSManaged public var isExpanded: Bool
 
 }
 
