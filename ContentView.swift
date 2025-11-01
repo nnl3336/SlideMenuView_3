@@ -372,6 +372,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         //fetchFolders()
         
         // テーブルの選択状態もリセット
+        fetchFolders()
         tableView.reloadData()
         
         // ツールバーを更新
@@ -683,9 +684,9 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
         // visibleFlattenedFolders を再構築
         visibleFlattenedFolders = []
+        
         buildVisibleFolders(from: rootFolders)
     }
-
 
     // 再帰的に展開して visibleFlattenedFolders に追加
     private func buildVisibleFolders(from folders: [Folder]) {
@@ -707,7 +708,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             visibleFlattenedFolders.append(folder)
 
             // 展開状態のフォルダだけ子フォルダを追加
-            if expandedState[folder.uuid] == true,
+            if folder.isExpanded,
                let children = folder.children as? Set<Folder> {
                 buildVisibleFolders(from: Array(children))
             }
@@ -746,7 +747,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             result.append(folder)
 
             // 展開状態のフォルダだけ子フォルダを追加
-            if expandedState[folder.uuid] == true,
+            if folder.isExpanded,
                let children = folder.children as? Set<Folder> {
                 // currentSort と ascending に応じて並び替え
                 let sortedChildren: [Folder] = {
@@ -796,7 +797,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     func isVisible(_ folder: Folder) -> Bool {
         var parent = folder.parent
         while let p = parent {
-            if expandedState[p.uuid] == false { return false }
+            if folder.isExpanded { return false }
             parent = p.parent
         }
         return true
@@ -822,7 +823,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
         for node in sortedNodes {
             result.append(node)
-            if expandedState[node.uuid] == true, let children = node.children as? Set<Folder> {
+            if node.isExpanded, let children = node.children as? Set<Folder> {
                 let childrenSorted = flatten(nodes: Array(children))
                 result.append(contentsOf: childrenSorted)
             }
@@ -962,7 +963,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             let folder = folders[indexPath.row]
 
             let cell = tableView.dequeueReusableCell(withIdentifier: CustomCell.reuseID, for: indexPath) as! CustomCell
-            let isExpanded = expandedState[folder.uuid] ?? false
+            let isExpanded = folder.isExpanded ?? false
             let hasChildren = (folder.children?.count ?? 0) > 0
             cell.configureCell(
                 name: folder.folderName ?? "無題",
@@ -996,7 +997,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
             if row >= folderStartIndex && row < folderEndIndex {
                 let folder = visibleFlattenedFolders[row - folderStartIndex]
-                let isExpanded = expandedState[folder.uuid] ?? false
+                let isExpanded = folder.isExpanded ?? false
                 let hasChildren = (folder.children?.count ?? 0) > 0
 
                 let cell = tableView.dequeueReusableCell(withIdentifier: CustomCell.reuseID, for: indexPath) as! CustomCell
@@ -1086,23 +1087,23 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     
     //var expandedState: [NSManagedObjectID: Bool] = [:]
     var visibleFlattenedFolders: [Folder] = []
-    var expandedState: [UUID: Bool] = [:]
+    //var expandedState: [UUID: Bool] = [:]
 
     var visibleState: [UUID: Bool] = [:]
     
     //***
     
     // 保存
-    private func saveExpandedState() {
+    /*private func saveExpandedState() {
         var dict: [String: Bool] = [:]
         for (uuid, isExpanded) in expandedState {
             dict[uuid.uuidString] = isExpanded
         }
         UserDefaults.standard.set(dict, forKey: "expandedState")
-    }
+    }*/
 
     // 復元
-    private func loadExpandedState() {
+    /*private func loadExpandedState() {
         guard let dict = UserDefaults.standard.dictionary(forKey: "expandedState") as? [String: Bool] else { return }
         var restored: [UUID: Bool] = [:]
         for (uuidString, isExpanded) in dict {
@@ -1111,7 +1112,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             }
         }
         expandedState = restored
-    }
+    }*/
     
     //子フォルダの可視制御
     func showChildren(of folder: Folder) {
@@ -1137,7 +1138,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         visibleFlattenedFolders.insert(contentsOf: children, at: insertIndex)
 
         // 展開済みなら孫も再帰的に追加
-        for child in children where expandedState[child.uuid] == true {
+        for child in children where child.isExpanded {
             showChildren(of: child)
         }
     }
@@ -1157,44 +1158,82 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
     
     // MARK: - Toggle Folder（展開／折りたたみ）　トグル
-    func toggleFolder(_ folder: Folder) {
-        let currently = expandedState[folder.uuid] ?? false
-        expandedState[folder.uuid] = !currently
+    func flattenedFromRoots(_ roots: [Folder]) -> [Folder] {
+        var result: [Folder] = []
+        func dfs(_ folders: [Folder]) {
+            // currentSort に基づくソート（必要なら）
+            let sorted = folders.sorted { a, b in
+                // 例: sort by sortIndex
+                return a.sortIndex < b.sortIndex
+            }
+            for f in sorted {
+                result.append(f)
+                if f.isExpanded, let children = f.children as? Set<Folder> {
+                    dfs(Array(children))
+                }
+            }
+        }
+        dfs(roots)
+        return result
+    }
 
-        // visibleFlattenedFolders を再構築
+    func toggleFolder(_ folder: Folder) {
+        // 1) toggle model flag (in-memory)
+        folder.isExpanded.toggle()
+
+        // 2) old snapshot
         let oldVisible = visibleFlattenedFolders
-        buildVisibleFlattenedFolders()  // ここで [Folder] に再構築
-        let newVisible = visibleFlattenedFolders
+
+        // 3) build new snapshot *without* mutating visibleFlattenedFolders yet
+        let rootFolders = (fetchedResultsController.fetchedObjects ?? []).filter { $0.parent == nil }
+        let newVisible = flattenedFromRoots(rootFolders)
+
+        // 4) compute indexPaths to delete/insert
         let startRow = normalBefore.count
 
-        // 削除行
-        var deleteIndexPaths: [IndexPath] = []
+        // helper: find IndexPaths for elements present in old but not in new
+        var deletes: [IndexPath] = []
         for (i, f) in oldVisible.enumerated() {
             if !newVisible.contains(f) {
-                deleteIndexPaths.append(IndexPath(row: startRow + i, section: 0))
+                deletes.append(IndexPath(row: startRow + i, section: 0))
             }
         }
 
-        // 追加行
-        var insertIndexPaths: [IndexPath] = []
+        var inserts: [IndexPath] = []
         for (i, f) in newVisible.enumerated() {
             if !oldVisible.contains(f) {
-                insertIndexPaths.append(IndexPath(row: startRow + i, section: 0))
+                inserts.append(IndexPath(row: startRow + i, section: 0))
             }
         }
 
-        tableView.beginUpdates()
-        tableView.deleteRows(at: deleteIndexPaths, with: .fade)
-        tableView.insertRows(at: insertIndexPaths, with: .fade)
-        tableView.endUpdates()
+        // 5) update the data source to the final state BEFORE performing table updates
+        visibleFlattenedFolders = newVisible
 
-        // 矢印回転
-        if let index = newVisible.firstIndex(of: folder),
-           let cell = tableView.cellForRow(at: IndexPath(row: startRow + index, section: 0)) as? CustomCell {
-            cell.rotateChevron(expanded: !currently)
-        }
+        // 6) perform batch updates (animated)
+        tableView.performBatchUpdates({
+            if !deletes.isEmpty { tableView.deleteRows(at: deletes, with: .fade) }
+            if !inserts.isEmpty { tableView.insertRows(at: inserts, with: .fade) }
+        }, completion: { _ in
+            // rotate chevron for the tapped folder's visible cell (if any)
+            if let newIndex = self.visibleFlattenedFolders.firstIndex(of: folder) {
+                let indexPath = IndexPath(row: startRow + newIndex, section: 0)
+                if let cell = self.tableView.cellForRow(at: indexPath) as? CustomCell {
+                    cell.rotateChevron(expanded: folder.isExpanded)
+                }
+            }
 
-        saveExpandedState()
+            // 7) Now persist the change — after UI update to avoid FRC racing
+            self.suppressFRCUpdates = true
+            do {
+                try folder.managedObjectContext?.save()
+            } catch {
+                print("❌ isExpanded save failed:", error)
+            }
+            // small delay or immediately turn off suppression; if using FRC delegate check suppressFRCUpdates
+            DispatchQueue.main.async {
+                self.suppressFRCUpdates = false
+            }
+        })
     }
 
     // 全子孫を取得
@@ -1215,7 +1254,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         let sortedChildren = children.sorted { $0.sortIndex < $1.sortIndex }
         for child in sortedChildren {
             result.append(child)
-            if expandedState[child.uuid] == true {
+            if folder.isExpanded {
                 result.append(contentsOf: childrenToShow(for: child))
             }
         }
@@ -1350,12 +1389,12 @@ struct FolderNode {
 }
 
 // CoreDataのFolderにisExpanded追加
-extension Folder {
+/*extension Folder {
     @objc var isExpanded: Bool {
         get { objc_getAssociatedObject(self, &AssociatedKeys.isExpanded) as? Bool ?? false }
         set { objc_setAssociatedObject(self, &AssociatedKeys.isExpanded, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
-}
+}*/
 
 private struct AssociatedKeys {
     static var isExpanded = "isExpanded"
