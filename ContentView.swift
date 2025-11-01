@@ -684,36 +684,63 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
         // visibleFlattenedFolders を再構築
         visibleFlattenedFolders = []
-        
         buildVisibleFolders(from: rootFolders)
     }
 
-    // 再帰的に展開して visibleFlattenedFolders に追加
     private func buildVisibleFolders(from folders: [Folder]) {
-        // まず現在の並び順で folders をソート
+        // 並び順の適用
         let sortedFolders: [Folder] = {
             switch currentSort {
             case .order:
-                return folders.sorted { ascending ? $0.sortIndex < $1.sortIndex : $0.sortIndex > $1.sortIndex }
+                return folders.sorted {
+                    ascending ? $0.sortIndex < $1.sortIndex : $0.sortIndex > $1.sortIndex
+                }
             case .title:
-                return folders.sorted { ascending ? ($0.folderName ?? "") < ($1.folderName ?? "") : ($0.folderName ?? "") > ($1.folderName ?? "") }
+                return folders.sorted {
+                    ascending
+                        ? ($0.folderName ?? "") < ($1.folderName ?? "")
+                        : ($0.folderName ?? "") > ($1.folderName ?? "")
+                }
             case .createdAt:
-                return folders.sorted { ascending ? ($0.folderMadeTime ?? Date.distantPast) < ($1.folderMadeTime ?? Date.distantPast) : ($0.folderMadeTime ?? Date.distantPast) > ($1.folderMadeTime ?? Date.distantPast) }
+                return folders.sorted {
+                    ascending
+                        ? ($0.folderMadeTime ?? .distantPast) < ($1.folderMadeTime ?? .distantPast)
+                        : ($0.folderMadeTime ?? .distantPast) > ($1.folderMadeTime ?? .distantPast)
+                }
             case .currentDate:
-                return folders.sorted { ascending ? ($0.currentDate ?? Date.distantPast) < ($1.currentDate ?? Date.distantPast) : ($0.currentDate ?? Date.distantPast) > ($1.currentDate ?? Date.distantPast) }
+                return folders.sorted {
+                    ascending
+                        ? ($0.currentDate ?? .distantPast) < ($1.currentDate ?? .distantPast)
+                        : ($0.currentDate ?? .distantPast) > ($1.currentDate ?? .distantPast)
+                }
             }
         }()
 
         for folder in sortedFolders {
+            // ノーマルモードでは非表示フォルダをスキップ
+            if bottomToolbarState != .editing && folder.isHide {
+                continue
+            }
+
             visibleFlattenedFolders.append(folder)
 
-            // 展開状態のフォルダだけ子フォルダを追加
+            // 展開されているフォルダのみ子を再帰追加
             if expandedState[folder.uuid] == true,
                let children = folder.children as? Set<Folder> {
-                buildVisibleFolders(from: Array(children))
+
+                // 子もモードに応じてフィルタリング
+                let visibleChildren: [Folder]
+                if bottomToolbarState == .editing {
+                    visibleChildren = Array(children)
+                } else {
+                    visibleChildren = children.filter { !$0.isHide }
+                }
+
+                buildVisibleFolders(from: visibleChildren)
             }
         }
     }
+
 
     /*private func flattenWithLevel(nodes: [Folder], level: Int = 0) -> [(folder: Folder, level: Int)] {
         var result: [(folder: Folder, level: Int)] = []
