@@ -1254,19 +1254,19 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     //セルタップ
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         guard !isSearching else { return }
-
+        
         let row = indexPath.row
         let coreDataStartIndex = normalBefore.count
         let coreDataEndIndex = coreDataStartIndex + visibleFlattenedFolders.count
-
+        
         if row < normalBefore.count {
             // normalBefore
             tableView.deselectRow(at: indexPath, animated: true)
-
+            
         } else if row < coreDataEndIndex {
             // CoreData フォルダ
             let folder = visibleFlattenedFolders[row - coreDataStartIndex]
-
+            
             if isSelecting {
                 // トグル選択
                 if selectedFolders.contains(folder) {
@@ -1280,21 +1280,17 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                     selectedFolders.insert(folder)
                     print("Added folder: \(folder.folderName ?? "")")
                 }
-
+                
                 tableView.reloadRows(at: [indexPath], with: .none)
                 updateToolbar()
                 
             } else {
-                // 通常タップ: フォルダを開く
-                toggleFolder(folder)
+                // 通常タップでは開閉しない
+                tableView.deselectRow(at: indexPath, animated: true)
             }
-
-        } else {
-            // normalAfter
-            let afterIndex = row - coreDataEndIndex
-            tableView.deselectRow(at: indexPath, animated: true)
         }
     }
+
 
     
     
