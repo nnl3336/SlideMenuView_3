@@ -684,63 +684,37 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
         // visibleFlattenedFolders を再構築
         visibleFlattenedFolders = []
+        
         buildVisibleFolders(from: rootFolders)
     }
 
     private func buildVisibleFolders(from folders: [Folder]) {
-        // 並び順の適用
+        // ノーマルモードでは isHide == true は除外
+        let visibleFolders = folders.filter { bottomToolbarState == .editing || !$0.isHide }
+
+        // 並び順でソート
         let sortedFolders: [Folder] = {
             switch currentSort {
             case .order:
-                return folders.sorted {
-                    ascending ? $0.sortIndex < $1.sortIndex : $0.sortIndex > $1.sortIndex
-                }
+                return visibleFolders.sorted { ascending ? $0.sortIndex < $1.sortIndex : $0.sortIndex > $1.sortIndex }
             case .title:
-                return folders.sorted {
-                    ascending
-                        ? ($0.folderName ?? "") < ($1.folderName ?? "")
-                        : ($0.folderName ?? "") > ($1.folderName ?? "")
-                }
+                return visibleFolders.sorted { ascending ? ($0.folderName ?? "") < ($1.folderName ?? "") : ($0.folderName ?? "") > ($1.folderName ?? "") }
             case .createdAt:
-                return folders.sorted {
-                    ascending
-                        ? ($0.folderMadeTime ?? .distantPast) < ($1.folderMadeTime ?? .distantPast)
-                        : ($0.folderMadeTime ?? .distantPast) > ($1.folderMadeTime ?? .distantPast)
-                }
+                return visibleFolders.sorted { ascending ? ($0.folderMadeTime ?? Date.distantPast) < ($1.folderMadeTime ?? Date.distantPast) : ($0.folderMadeTime ?? Date.distantPast) > ($1.folderMadeTime ?? Date.distantPast) }
             case .currentDate:
-                return folders.sorted {
-                    ascending
-                        ? ($0.currentDate ?? .distantPast) < ($1.currentDate ?? .distantPast)
-                        : ($0.currentDate ?? .distantPast) > ($1.currentDate ?? .distantPast)
-                }
+                return visibleFolders.sorted { ascending ? ($0.currentDate ?? Date.distantPast) < ($1.currentDate ?? Date.distantPast) : ($0.currentDate ?? Date.distantPast) > ($1.currentDate ?? Date.distantPast) }
             }
         }()
 
         for folder in sortedFolders {
-            // ノーマルモードでは非表示フォルダをスキップ
-            if bottomToolbarState != .editing && folder.isHide {
-                continue
-            }
-
             visibleFlattenedFolders.append(folder)
 
-            // 展開されているフォルダのみ子を再帰追加
-            if expandedState[folder.uuid] == true,
-               let children = folder.children as? Set<Folder> {
-
-                // 子もモードに応じてフィルタリング
-                let visibleChildren: [Folder]
-                if bottomToolbarState == .editing {
-                    visibleChildren = Array(children)
-                } else {
-                    visibleChildren = children.filter { !$0.isHide }
-                }
-
-                buildVisibleFolders(from: visibleChildren)
+            // 展開状態のフォルダのみ子フォルダを再帰追加
+            if folder.isExpanded, let children = folder.children as? Set<Folder> {
+                buildVisibleFolders(from: Array(children))
             }
         }
     }
-
 
     /*private func flattenWithLevel(nodes: [Folder], level: Int = 0) -> [(folder: Folder, level: Int)] {
         var result: [(folder: Folder, level: Int)] = []
@@ -771,22 +745,26 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         var result: [Folder] = []
 
         func addChildren(of folder: Folder) {
+            // ノーマルモードで非表示はスキップ
+            if bottomToolbarState != .editing && folder.isHide { return }
+
             result.append(folder)
 
-            // 展開状態のフォルダだけ子フォルダを追加
             if expandedState[folder.uuid] == true,
                let children = folder.children as? Set<Folder> {
-                // currentSort と ascending に応じて並び替え
+                // ノーマルモードでは isHide == false の子だけ
+                let filteredChildren = children.filter { bottomToolbarState == .editing || !$0.isHide }
+
                 let sortedChildren: [Folder] = {
                     switch currentSort {
                     case .order:
-                        return children.sorted { ascending ? $0.sortIndex < $1.sortIndex : $0.sortIndex > $1.sortIndex }
+                        return filteredChildren.sorted { ascending ? $0.sortIndex < $1.sortIndex : $0.sortIndex > $1.sortIndex }
                     case .title:
-                        return children.sorted { ascending ? ($0.folderName ?? "") < ($1.folderName ?? "") : ($0.folderName ?? "") > ($1.folderName ?? "") }
+                        return filteredChildren.sorted { ascending ? ($0.folderName ?? "") < ($1.folderName ?? "") : ($0.folderName ?? "") > ($1.folderName ?? "") }
                     case .createdAt:
-                        return children.sorted { ascending ? ($0.folderMadeTime ?? Date.distantPast) < ($1.folderMadeTime ?? Date.distantPast) : ($0.folderMadeTime ?? Date.distantPast) > ($1.folderMadeTime ?? Date.distantPast) }
+                        return filteredChildren.sorted { ascending ? ($0.folderMadeTime ?? Date.distantPast) < ($1.folderMadeTime ?? Date.distantPast) : ($0.folderMadeTime ?? Date.distantPast) > ($1.folderMadeTime ?? Date.distantPast) }
                     case .currentDate:
-                        return children.sorted { ascending ? ($0.currentDate ?? Date.distantPast) < ($1.currentDate ?? Date.distantPast) : ($0.currentDate ?? Date.distantPast) > ($1.currentDate ?? Date.distantPast) }
+                        return filteredChildren.sorted { ascending ? ($0.currentDate ?? Date.distantPast) < ($1.currentDate ?? Date.distantPast) : ($0.currentDate ?? Date.distantPast) > ($1.currentDate ?? Date.distantPast) }
                     }
                 }()
 
@@ -796,6 +774,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             }
         }
 
+        
         // Core Data から直接ルートフォルダを取得
         guard let allFolders = fetchedResultsController.fetchedObjects else { return }
         let rootFolders = allFolders.filter { $0.parent == nil }
@@ -1226,7 +1205,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     }
 
     // 全子孫を取得
-    func allDescendants(of folder: Folder) -> [Folder] {
+    /*func allDescendants(of folder: Folder) -> [Folder] {
         guard let children = folder.children?.allObjects as? [Folder] else { return [] }
         var result: [Folder] = []
         for child in children {
@@ -1234,10 +1213,10 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             result.append(contentsOf: allDescendants(of: child))
         }
         return result
-    }
+    }*/
 
     // 展開状態を考慮して表示すべき子孫を再帰的に取得
-    func childrenToShow(for folder: Folder) -> [Folder] {
+    /*func childrenToShow(for folder: Folder) -> [Folder] {
         guard let children = folder.children?.allObjects as? [Folder] else { return [] }
         var result: [Folder] = []
         let sortedChildren = children.sorted { $0.sortIndex < $1.sortIndex }
@@ -1248,7 +1227,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             }
         }
         return result
-    }
+    }*/
 
     
 
