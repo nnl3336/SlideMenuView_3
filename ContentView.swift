@@ -637,13 +637,17 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             }
         }*/
         if let predicate = predicate {
-            predicates.append(predicate)
+            request.predicate = predicate
         }
+        
+        /*if let predicate = predicate {
+            predicates.append(predicate)
+        }*/
 
         // 編集中でなければ isHide フィルタを追加
-        if bottomToolbarState != .editing {
+        /*if bottomToolbarState != .editing {
             predicates.append(NSPredicate(format: "isHide == %@", NSNumber(value: false)))
-        }
+        }*/
 
 
         // FRC 設定
@@ -1330,16 +1334,38 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         view.endEditing(true)
     }
 
+    /*
+     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
+         if searchText.isEmpty {
+             isSearching = false
+             fetchFolders()
+         } else {
+             isSearching = true
+             let predicate = NSPredicate(format: "folderName CONTAINS[c] %@", searchText)
+             fetchFolders(predicate: predicate)
+         }
+     }
+     */
     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
-        if searchText.isEmpty {
-            isSearching = false
-            fetchFolders()
-        } else {
-            isSearching = true
-            let predicate = NSPredicate(format: "folderName CONTAINS[c] %@", searchText)
-            fetchFolders(predicate: predicate)
+        var predicates: [NSPredicate] = []
+
+        if !searchText.isEmpty {
+            let searchPredicate = NSPredicate(format: "folderName CONTAINS[c] %@", searchText)
+            predicates.append(searchPredicate)
         }
+
+        // 編集モードでなければ isHide フィルターを追加
+        if bottomToolbarState != .editing {
+            predicates.append(NSPredicate(format: "isHide == %@", NSNumber(value: false)))
+        }
+
+        let compoundPredicate = NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
+
+        fetchFolders(predicate: compoundPredicate)
+        
+        isSearching = !searchText.isEmpty
     }
+    
     //***基本プロパティ
     
     var context: NSManagedObjectContext!
