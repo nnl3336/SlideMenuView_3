@@ -346,6 +346,12 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         //tableView.setEditing(true, animated: true)  // ← 編集モードに切り替え
         //tableView.reloadData()
         fetchFolders()
+        
+        // 展開状態を整理（存在しないフォルダUUIDを除外）
+        sanitizeExpandedState()
+        
+        // flattenを再構築（非表示フォルダを除外して再表示）
+        buildVisibleFlattenedFolders()
         tableView.reloadData()
     }
     @objc private func selectCancel() {
@@ -363,21 +369,28 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         updateToolbar()
     }
     @objc private func editCancel() {
-        // 選択アイテムをクリア
-        //selectedFolders.removeAll()
-        
-        // bottomToolbarState を通常に戻す
+        // 編集解除
         bottomToolbarState = .normal
         
-        //fetchFolders()
+        // 選択アイテムをクリア（安全のため）
+        selectedFolders.removeAll()
         
-        // テーブルの選択状態もリセット
+        // データ再取得
         fetchFolders()
+        
+        // 展開状態を整理（存在しないフォルダUUIDを除外）
+        sanitizeExpandedState()
+        
+        // flattenを再構築（非表示フォルダを除外して再表示）
+        buildVisibleFlattenedFolders()
+        
+        // テーブルを再描画
         tableView.reloadData()
         
         // ツールバーを更新
         updateToolbar()
     }
+
     @objc private func transferItems() {
         // 選択アイテムの転送処理
         //delegate?.didToggleBool_TransferModal(true)
@@ -773,7 +786,6 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                 }
             }
         }
-
         
         // Core Data から直接ルートフォルダを取得
         guard let allFolders = fetchedResultsController.fetchedObjects else { return }
@@ -798,6 +810,13 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
         visibleFlattenedFolders = result
     }
+    
+    private func sanitizeExpandedState() {
+        guard let allFolders = fetchedResultsController.fetchedObjects else { return }
+        let validUUIDs = Set(allFolders.map { $0.uuid })
+        expandedState = expandedState.filter { validUUIDs.contains($0.key) }
+    }
+
 
 
     func isVisible(_ folder: Folder) -> Bool {
