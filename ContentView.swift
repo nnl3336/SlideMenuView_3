@@ -604,7 +604,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     
     var predicates: [NSPredicate] = []
     
-    private func fetchFolders(predicate: NSPredicate? = nil) {
+    /*private func fetchFolders(predicate: NSPredicate? = nil) {
         let request: NSFetchRequest<Folder> = Folder.fetchRequest()
         
         // sortDescriptors のキーを currentSort に応じて決定
@@ -672,7 +672,73 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         } catch {
             print("Fetch failed: \(error)")
         }
+    }*/
+    private func fetchFolders(predicate: NSPredicate? = nil) {
+        let request: NSFetchRequest<Folder> = Folder.fetchRequest()
+        
+        // ソートキーの決定
+        let sortKey: String
+        switch currentSort {
+        case .order:
+            sortKey = "sortIndex"
+        case .title:
+            sortKey = "folderName"
+        case .createdAt:
+            sortKey = "folderMadeTime"
+        case .currentDate:
+            sortKey = "currentDate"
+        }
+
+        request.sortDescriptors = [NSSortDescriptor(key: sortKey, ascending: ascending)]
+
+        // ✅ predicate設定を明確に
+        /*if let searchPredicate = predicate {
+            // 検索中は isHide も考慮する
+            if bottomToolbarState != .editing {
+                let hidePredicate = NSPredicate(format: "isHide == %@", NSNumber(value: false))
+                request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [searchPredicate, hidePredicate])
+            } else {
+                request.predicate = searchPredicate
+            }
+        } else {
+            // 検索していない場合の通常フェッチ
+            if bottomToolbarState != .editing {
+                request.predicate = NSPredicate(format: "isHide == %@", NSNumber(value: false))
+            }
+        }*/
+        
+        if let predicate = predicate {
+            request.predicate = predicate
+        }
+
+        fetchedResultsController = NSFetchedResultsController(
+            fetchRequest: request,
+            managedObjectContext: context,
+            sectionNameKeyPath: nil,
+            cacheName: nil
+        )
+        fetchedResultsController.delegate = self
+
+        do {
+            try fetchedResultsController.performFetch()
+
+            // ✅ ここで配列を確実に再構築
+            visibleFlattenedFolders.removeAll()
+            groupedByLevel.removeAll()
+            sortedLevels.removeAll()
+
+            if isSearching {
+                groupFoldersByLevel()
+            } else {
+                buildFlattenedFolders()
+            }
+
+            tableView.reloadData()
+        } catch {
+            print("Fetch failed: \(error)")
+        }
     }
+
 
     // MARK: - 検索
 
@@ -1327,7 +1393,8 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     
     
 
-    // MARK: - UISearchBarDelegate　デリゲート
+    // MARK: - UISearchBarDelegate　デリゲート　//SearchBar
+    
     
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         // テーブルビューのスクロール開始時にキーボードを閉じる
@@ -1360,7 +1427,8 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
         // 編集モードでなければ非表示フォルダを除外
         if bottomToolbarState != .editing {
-            predicates.append(NSPredicate(format: "isHide == %@", NSNumber(value: false)))
+            let isHidePredicate = NSPredicate(format: "isHide == NO OR isHide == nil")
+            predicates.append(isHidePredicate)
         }
 
         // 複数条件を AND 結合
