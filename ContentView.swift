@@ -1347,24 +1347,30 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
      }
      */
     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
+        // まず検索状態を先に決める
+        isSearching = !searchText.isEmpty
+
         var predicates: [NSPredicate] = []
 
+        // 検索文字列がある場合
         if !searchText.isEmpty {
             let searchPredicate = NSPredicate(format: "folderName CONTAINS[c] %@", searchText)
             predicates.append(searchPredicate)
         }
 
-        // 編集モードでなければ isHide フィルターを追加
+        // 編集モードでなければ非表示フォルダを除外
         if bottomToolbarState != .editing {
             predicates.append(NSPredicate(format: "isHide == %@", NSNumber(value: false)))
         }
 
-        let compoundPredicate = NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
+        // 複数条件を AND 結合
+        let compoundPredicate: NSPredicate? = predicates.isEmpty ? nil
+            : NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
 
+        // フェッチして TableView 更新
         fetchFolders(predicate: compoundPredicate)
-        
-        isSearching = !searchText.isEmpty
     }
+
     
     //***基本プロパティ
     
