@@ -339,19 +339,25 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         }
     }
     // MARK: - Actions
-    @objc private func startEditing() {
+    @objc private func startEditing(searchText: String) {
+        isSearching = !searchText.isEmpty
+        
         bottomToolbarState = .editing
         //isHideMode = true
         
         //tableView.setEditing(true, animated: true)  // ← 編集モードに切り替え
         //tableView.reloadData()
-        fetchFolders()
+        //fetchFolders()
         
         // 展開状態を整理（存在しないフォルダUUIDを除外）
         sanitizeExpandedState()
         
         // flattenを再構築（非表示フォルダを除外して再表示）
-        buildVisibleFlattenedFolders()
+        if isSearching {
+            groupFoldersByLevel()
+        } else {
+            buildFlattenedFolders()
+        }
         tableView.reloadData()
     }
     @objc private func selectCancel() {
@@ -1411,31 +1417,49 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
          }
      }
      */
+    
+    private var filteredNormalBefore: [String] = []
+    private var filteredNormalAfter: [String] = []
+    
     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
-        // まず検索状態を先に決める
         isSearching = !searchText.isEmpty
 
         var predicates: [NSPredicate] = []
 
-        // 検索文字列がある場合
+        // Core Data 検索条件
         if !searchText.isEmpty {
             let searchPredicate = NSPredicate(format: "folderName CONTAINS[c] %@", searchText)
             predicates.append(searchPredicate)
         }
 
-        // 編集モードでなければ非表示フォルダを除外
+        // 編集モードでなければ非表示フォルダ除外
         if bottomToolbarState != .editing {
             let isHidePredicate = NSPredicate(format: "isHide == NO OR isHide == nil")
             predicates.append(isHidePredicate)
         }
 
-        // 複数条件を AND 結合
-        let compoundPredicate: NSPredicate? = predicates.isEmpty ? nil
-            : NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
+        let compoundPredicate = predicates.isEmpty ? nil :
+            NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
 
-        // フェッチして TableView 更新
+        // Core Data フェッチ
         fetchFolders(predicate: compoundPredicate)
+
+        // 通常セル検索
+        /*if searchText.isEmpty {
+            filteredNormalBefore = normalBefore
+            filteredNormalAfter = normalAfter
+        } else {
+            filteredNormalBefore = normalBefore.filter {
+                $0.localizedCaseInsensitiveContains(searchText)
+            }
+            filteredNormalAfter = normalAfter.filter {
+                $0.localizedCaseInsensitiveContains(searchText)
+            }
+        }*/
+
+        tableView.reloadData()
     }
+
 
     
     //***基本プロパティ
