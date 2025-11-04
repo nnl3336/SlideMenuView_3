@@ -1052,7 +1052,8 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         if isSearching {
             let level = sortedLevels[indexPath.section]
-            guard let folders = groupedByLevel[level], indexPath.row < folders.count else {
+            guard let folders = groupedByLevel[level],
+                    indexPath.row < folders.count else {
                 return UITableViewCell()
             }
             let folder = folders[indexPath.row]
@@ -1068,7 +1069,6 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                 systemName: "folder",
                 tintColor: .systemBlue
             )
-            
             // 選択状態の反映
             cell.contentView.backgroundColor = selectedFolders.contains(folder)
                 ? UIColor.systemBlue.withAlphaComponent(0.3)
@@ -1085,7 +1085,6 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                 cell.textLabel?.text = normalBefore[row]
                 return cell
             }
-
             // Core Data フォルダ
             let folderStartIndex = normalBefore.count
             let folderEndIndex = folderStartIndex + visibleFlattenedFolders.count
@@ -1115,7 +1114,6 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                 cell.chevronTapped = { [weak self] in
                     self?.toggleFolder(folder)
                 }
-
                 // ✅ 編集モードのときだけスイッチを表示
                 if bottomToolbarState == .editing {
                     cell.accessoryView = cell.hideSwitch
