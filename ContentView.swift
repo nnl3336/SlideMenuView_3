@@ -339,25 +339,19 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         }
     }
     // MARK: - Actions
-    @objc private func startEditing(searchText: String) {
-        isSearching = !searchText.isEmpty
-        
+    @objc private func startEditing() {
         bottomToolbarState = .editing
         //isHideMode = true
         
         //tableView.setEditing(true, animated: true)  // ← 編集モードに切り替え
         //tableView.reloadData()
-        //fetchFolders()
+        fetchFolders()
         
         // 展開状態を整理（存在しないフォルダUUIDを除外）
         sanitizeExpandedState()
         
         // flattenを再構築（非表示フォルダを除外して再表示）
-        if isSearching {
-            groupFoldersByLevel()
-        } else {
-            buildFlattenedFolders()
-        }
+        buildVisibleFlattenedFolders()
         tableView.reloadData()
     }
     @objc private func selectCancel() {
