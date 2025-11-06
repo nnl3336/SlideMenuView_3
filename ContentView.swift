@@ -380,19 +380,16 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     // MARK: - Actions
     @objc private func startEditing() {
         bottomToolbarState = .editing
-        //isHideMode = true
         
-        //tableView.setEditing(true, animated: true)  // ← 編集モードに切り替え
-        //tableView.reloadData()
-        fetchFolders()
-        
-        // 展開状態を整理（存在しないフォルダUUIDを除外）
-        sanitizeExpandedState()
-        
-        // flattenを再構築（非表示フォルダを除外して再表示）
-        //buildVisibleFlattenedFolders()
+        // 検索中でなければフォルダを再フェッチ
+        if !isSearching {
+            fetchFolders()
+            sanitizeExpandedState()
+        }
+
         tableView.reloadData()
     }
+
     @objc private func selectCancel() {
         isHideMode = false
         // 選択アイテムをクリア
@@ -1109,6 +1106,27 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                 systemName: "folder",
                 tintColor: .systemBlue
             )
+            
+            if bottomToolbarState == .editing {
+                cell.accessoryView = cell.hideSwitch
+                cell.hideSwitch.isOn = folder.isHide
+                cell.hideSwitchChanged = { [weak self] isOn in
+                    guard let self = self else { return }
+                    folder.isHide = isOn
+
+                    // 明示的に context を取得して保存
+                    //if let context = folder.managedObjectContext {
+                        do {
+                            try context.save()
+                            print("✅ isHide 保存成功 (\(isOn))")
+                        } catch {
+                            print("❌ isHide 保存失敗:", error)
+                        }
+                }
+            } else {
+                cell.accessoryView = nil
+            }
+            
             // 選択状態の反映
             cell.contentView.backgroundColor = selectedFolders.contains(folder)
                 ? UIColor.systemBlue.withAlphaComponent(0.3)
