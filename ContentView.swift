@@ -193,6 +193,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             self.hideFolder(folder)
             completion(true)
         }
+                       
         hideAction.backgroundColor = .gray
 
         let configuration = UISwipeActionsConfiguration(actions: [deleteAction, hideAction])
@@ -203,24 +204,61 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
 
     // フォルダを削除する
-    func deleteFolder(_ folder: Folder) {
-        // 1️⃣ データソースの削除
-        if let index = visibleFlattenedFolders.firstIndex(of: folder) {
-            visibleFlattenedFolders.remove(at: index)
+    private func deleteFolder(_ folder: Folder) {
+        // アラートを作成
+        let alert = UIAlertController(
+            title: "削除の確認",
+            message: "このフォルダを削除しますか？\n（中のデータも削除されます）",
+            preferredStyle: .alert
+        )
 
-            // 2️⃣ TableView から削除
-            let indexPath = IndexPath(row: index + normalBefore.count, section: 0)
-            tableView.deleteRows(at: [indexPath], with: .automatic)
-        }
+        // 削除ボタン
+        alert.addAction(UIAlertAction(title: "削除", style: .destructive, handler: { _ in
+            // 1️⃣ データソースの削除
+            if let index = self.visibleFlattenedFolders.firstIndex(of: folder) {
+                self.visibleFlattenedFolders.remove(at: index)
 
-        // 3️⃣ Core Data 側も削除
-        context.delete(folder)
-        try? context.save()
+                // 2️⃣ TableView から削除
+                let indexPath = IndexPath(row: index + self.normalBefore.count, section: 0)
+                self.tableView.deleteRows(at: [indexPath], with: .automatic)
+            }
+
+            // 3️⃣ Core Data 側も削除
+            if let context = folder.managedObjectContext {
+                context.delete(folder)
+                do {
+                    try context.save()
+                    print("✅ フォルダを削除しました")
+                } catch {
+                    print("❌ Core Data 保存失敗: \(error.localizedDescription)")
+                }
+            }
+        }))
+
+        // キャンセルボタン
+        alert.addAction(UIAlertAction(title: "キャンセル", style: .cancel))
+
+        // 表示
+        present(alert, animated: true)
     }
+
 
 
     // フォルダを非表示にする
     private func hideFolder(_ folder: Folder) {
+        // Core Data の isHide を更新
+        folder.isHide = true
+
+        if let context = folder.managedObjectContext {
+            do {
+                try context.save()
+                print("✅ 非表示を保存しました")
+            } catch {
+                print("❌ 保存失敗: \(error.localizedDescription)")
+            }
+        }
+
+        // UI 側の更新
         guard let index = visibleFlattenedFolders.firstIndex(of: folder) else { return }
 
         let rowsToHide = [index] + childIndexes(of: folder)
@@ -237,6 +275,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
         tableView.deleteRows(at: indexPaths, with: .automatic)
     }
+
 
 
 
@@ -351,7 +390,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         sanitizeExpandedState()
         
         // flattenを再構築（非表示フォルダを除外して再表示）
-        buildVisibleFlattenedFolders()
+        //buildVisibleFlattenedFolders()
         tableView.reloadData()
     }
     @objc private func selectCancel() {
@@ -382,7 +421,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         sanitizeExpandedState()
         
         // flattenを再構築（非表示フォルダを除外して再表示）
-        buildVisibleFlattenedFolders()
+        //buildVisibleFlattenedFolders()
         
         // テーブルを再描画
         tableView.reloadData()
