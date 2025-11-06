@@ -31,7 +31,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         //loadExpandedState()
         
         // 取得後に展開状態を反映して flattenedFolders を作る
-        buildFlattenedFolders()
+        //buildFlattenedFolders()
         
         //
         
@@ -769,7 +769,8 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             if isSearching {
                 groupFoldersByLevel()
             } else {
-                buildFlattenedFolders()
+                //buildFlattenedFolders()
+                buildVisibleFlattenedFolders()
             }
 
             tableView.reloadData()
@@ -791,7 +792,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
 
     // MARK: - 通常時: 展開構造
     
-    private func buildFlattenedFolders() {
+    /*private func buildFlattenedFolders() {
         let allFolders: [Folder]
         if bottomToolbarState == .editing {
             // 編集中は全フォルダを表示
@@ -808,7 +809,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         visibleFlattenedFolders = []
         
         buildVisibleFolders(from: rootFolders)
-    }
+    }*/
 
     private func buildVisibleFolders(from folders: [Folder]) {
         // ノーマルモードでは isHide == true は除外
