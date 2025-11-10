@@ -1310,18 +1310,38 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     
     // MARK: - Toggle Folder（展開／折りたたみ）　トグル
     func toggleFolder(_ folder: Folder) {
-        // 展開状態をトグル
+        // 現在の可視フォルダを保存
+        let oldVisible = visibleFlattenedFolders
+        
+        // トグル
         folder.isExpanded.toggle()
-
-        // 展開状態を保存しておく（必要なら）
         expandedState[folder.uuid] = folder.isExpanded
 
-        // visibleFlattenedFolders を再構築
+        // 新しい可視フォルダを再構築
         buildVisibleFlattenedFolders()
+        let newVisible = visibleFlattenedFolders
 
-        // 全体を更新
-        tableView.reloadData()
+        // 差分を求める
+        var deleteIndexPaths: [IndexPath] = []
+        var insertIndexPaths: [IndexPath] = []
+        
+        for (i, f) in oldVisible.enumerated() where !newVisible.contains(f) {
+            deleteIndexPaths.append(IndexPath(row: i, section: 0))
+        }
+        for (i, f) in newVisible.enumerated() where !oldVisible.contains(f) {
+            insertIndexPaths.append(IndexPath(row: i, section: 0))
+        }
+
+        // アニメーション更新
+        tableView.beginUpdates()
+        if folder.isExpanded {
+            tableView.insertRows(at: insertIndexPaths, with: .fade)
+        } else {
+            tableView.deleteRows(at: deleteIndexPaths, with: .fade)
+        }
+        tableView.endUpdates()
     }
+
 
     // 全子孫を取得
     /*func allDescendants(of folder: Folder) -> [Folder] {
