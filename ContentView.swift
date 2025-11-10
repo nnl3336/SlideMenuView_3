@@ -1312,8 +1312,8 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     func toggleFolder(_ folder: Folder) {
         // 現在の可視フォルダを保存
         let oldVisible = visibleFlattenedFolders
-        
-        // トグル
+
+        // 展開状態をトグル
         folder.isExpanded.toggle()
         expandedState[folder.uuid] = folder.isExpanded
 
@@ -1321,15 +1321,18 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         buildVisibleFlattenedFolders()
         let newVisible = visibleFlattenedFolders
 
+        // もし「normalBefore」など先頭部分があるなら補正
+        let startRow = normalBefore.count
+
         // 差分を求める
         var deleteIndexPaths: [IndexPath] = []
         var insertIndexPaths: [IndexPath] = []
-        
+
         for (i, f) in oldVisible.enumerated() where !newVisible.contains(f) {
-            deleteIndexPaths.append(IndexPath(row: i, section: 0))
+            deleteIndexPaths.append(IndexPath(row: startRow + i, section: 0))
         }
         for (i, f) in newVisible.enumerated() where !oldVisible.contains(f) {
-            insertIndexPaths.append(IndexPath(row: i, section: 0))
+            insertIndexPaths.append(IndexPath(row: startRow + i, section: 0))
         }
 
         // アニメーション更新
