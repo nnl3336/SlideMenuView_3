@@ -1310,43 +1310,17 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     
     // MARK: - Toggle Folder（展開／折りたたみ）　トグル
     func toggleFolder(_ folder: Folder) {
-        let currently = expandedState[folder.uuid] ?? false
-        expandedState[folder.uuid] = !currently
+        // 展開状態をトグル
+        folder.isExpanded.toggle()
+
+        // 展開状態を保存しておく（必要なら）
+        expandedState[folder.uuid] = folder.isExpanded
 
         // visibleFlattenedFolders を再構築
-        let oldVisible = visibleFlattenedFolders
-        buildVisibleFlattenedFolders()  // ここで [Folder] に再構築
-        let newVisible = visibleFlattenedFolders
-        let startRow = normalBefore.count
+        buildVisibleFlattenedFolders()
 
-        // 削除行
-        var deleteIndexPaths: [IndexPath] = []
-        for (i, f) in oldVisible.enumerated() {
-            if !newVisible.contains(f) {
-                deleteIndexPaths.append(IndexPath(row: startRow + i, section: 0))
-            }
-        }
-
-        // 追加行
-        var insertIndexPaths: [IndexPath] = []
-        for (i, f) in newVisible.enumerated() {
-            if !oldVisible.contains(f) {
-                insertIndexPaths.append(IndexPath(row: startRow + i, section: 0))
-            }
-        }
-
-        tableView.beginUpdates()
-        tableView.deleteRows(at: deleteIndexPaths, with: .fade)
-        tableView.insertRows(at: insertIndexPaths, with: .fade)
-        tableView.endUpdates()
-
-        // 矢印回転
-        if let index = newVisible.firstIndex(of: folder),
-           let cell = tableView.cellForRow(at: IndexPath(row: startRow + index, section: 0)) as? CustomCell {
-            cell.rotateChevron(expanded: !currently)
-        }
-
-        saveExpandedState()
+        // 全体を更新
+        tableView.reloadData()
     }
 
     // 全子孫を取得
