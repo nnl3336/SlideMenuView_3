@@ -1310,40 +1310,52 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     
     // MARK: - Toggle Folder（展開／折りたたみ）　トグル
     func toggleFolder(_ folder: Folder) {
-        // 現在の可視フォルダを保存
-        let oldVisible = visibleFlattenedFolders
-
-        // 展開状態をトグル
         folder.isExpanded.toggle()
         expandedState[folder.uuid] = folder.isExpanded
 
-        // 新しい可視フォルダを再構築
-        buildVisibleFlattenedFolders()
-        let newVisible = visibleFlattenedFolders
+        // 親のインデックスを取得
+        guard let parentIndex = visibleFlattenedFolders.firstIndex(of: folder) else { return }
 
-        // もし「normalBefore」など先頭部分があるなら補正
-        let startRow = normalBefore.count
-
-        // 差分を求める
-        var deleteIndexPaths: [IndexPath] = []
-        var insertIndexPaths: [IndexPath] = []
-
-        for (i, f) in oldVisible.enumerated() where !newVisible.contains(f) {
-            deleteIndexPaths.append(IndexPath(row: startRow + i, section: 0))
-        }
-        for (i, f) in newVisible.enumerated() where !oldVisible.contains(f) {
-            insertIndexPaths.append(IndexPath(row: startRow + i, section: 0))
-        }
-
-        // アニメーション更新
         tableView.beginUpdates()
+
         if folder.isExpanded {
-            tableView.insertRows(at: insertIndexPaths, with: .fade)
+            // 子を取得して挿入
+            if let children = folder.children as? Set<Folder> {
+                let sortedChildren = Array(children).sorted { $0.sortIndex < $1.sortIndex }
+                var insertIndexPaths: [IndexPath] = []
+                for (offset, child) in sortedChildren.enumerated() {
+                    visibleFlattenedFolders.insert(child, at: parentIndex + offset + 1)
+                    insertIndexPaths.append(IndexPath(row: parentIndex + offset + 1, section: 0))
+                }
+                tableView.insertRows(at: insertIndexPaths, with: .fade)
+            }
         } else {
+            // 子孫を全削除
+            let descendants = allDescendants(of: folder)
+            var deleteIndexPaths: [IndexPath] = []
+            for descendant in descendants {
+                if let index = visibleFlattenedFolders.firstIndex(of: descendant) {
+                    deleteIndexPaths.append(IndexPath(row: index, section: 0))
+                }
+            }
+            for indexPath in deleteIndexPaths.sorted(by: { $0.row > $1.row }) {
+                visibleFlattenedFolders.remove(at: indexPath.row)
+            }
             tableView.deleteRows(at: deleteIndexPaths, with: .fade)
         }
+
         tableView.endUpdates()
+        
     }
+    private func allDescendants(of folder: Folder) -> [Folder] {
+        guard let children = folder.children as? Set<Folder> else { return [] }
+        var all = Array(children)
+        for child in children {
+            all += allDescendants(of: child)
+        }
+        return all
+    }
+
 
 
     // 全子孫を取得
