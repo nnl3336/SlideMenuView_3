@@ -49,25 +49,39 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                    contextMenuConfigurationForRowAt indexPath: IndexPath,
                    point: CGPoint) -> UIContextMenuConfiguration? {
 
-        // Folder 自体を取得
-        let folderIndex = indexPath.row - normalBefore.count
-        guard folderIndex >= 0 && folderIndex < visibleFlattenedFolders.count else { return nil }
-        let folder = visibleFlattenedFolders[folderIndex]
+        // 検索中と通常で Folder の取得を分岐
+        let folder: Folder?
+        if isSearching {
+            let level = sortedLevels[indexPath.section]
+            folder = groupedByLevel[level]?[indexPath.row]
+        } else {
+            let folderIndex = indexPath.row - normalBefore.count
+            folder = (folderIndex >= 0 && folderIndex < visibleFlattenedFolders.count)
+                ? visibleFlattenedFolders[folderIndex]
+                : nil
+        }
+
+        guard let folder = folder else { return nil }
 
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
             guard let self = self else {
                 return UIMenu(title: "", children: [])
             }
 
-            // フォルダ追加アクション
-            let addFolder = UIAction(title: "フォルダ追加", image: UIImage(systemName: "folder.badge.plus")) { _ in
+            // 📁 フォルダ追加
+            let addFolder = UIAction(
+                title: "フォルダ追加",
+                image: UIImage(systemName: "folder.badge.plus")
+            ) { _ in
                 self.presentAddFolderAlert(parent: folder)
             }
 
-            // 選択/トグルアクション
+            // ✅ 選択/解除
             let selectAction = UIAction(
                 title: self.selectedFolders.contains(folder) ? "選択解除" : "選択",
-                image: UIImage(systemName: self.selectedFolders.contains(folder) ? "checkmark.circle.fill" : "checkmark.circle")
+                image: UIImage(systemName: self.selectedFolders.contains(folder)
+                               ? "checkmark.circle.fill"
+                               : "checkmark.circle")
             ) { _ in
                 guard let index = self.visibleFlattenedFolders.firstIndex(of: folder) else { return }
                 let indexPath = IndexPath(row: index, section: 0)
@@ -82,18 +96,58 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                 self.bottomToolbarState = .selecting
                 self.updateToolbar()
 
-                // ✅ 該当セルだけ更新（reloadData()禁止！）
                 tableView.reloadRows(at: [indexPath], with: .none)
-                
-                tableView.reloadData()
             }
 
-            // 削除アクション
-            let delete = UIAction(title: "削除", image: UIImage(systemName: "trash"), attributes: .destructive) { _ in
+            // 🗑 削除
+            let delete = UIAction(
+                title: "削除",
+                image: UIImage(systemName: "trash"),
+                attributes: .destructive
+            ) { _ in
                 self.delete(folder)
             }
 
-            return UIMenu(title: "", children: [addFolder, selectAction, delete])
+            // 👁‍🗨 非表示 / 表示切り替え
+            let hide = UIAction(
+                title: folder.isHide ? "表示にする" : "非表示にする",
+                image: UIImage(systemName: folder.isHide ? "eye" : "eye.slash")
+            ) { [weak self] _ in
+                guard let self = self else { return }
+
+                // 非表示フラグ切り替え
+                folder.isHide.toggle()
+                
+                // Core Data 保存
+                try? self.context.save()
+
+                // 検索中判定
+                let searchText = self.searchBar.text ?? ""
+                self.isSearching = !searchText.isEmpty
+
+                var predicates: [NSPredicate] = []
+
+                if !searchText.isEmpty {
+                    let searchPredicate = NSPredicate(format: "folderName CONTAINS[c] %@", searchText)
+                    predicates.append(searchPredicate)
+                    self.currentSearchPredicate = searchPredicate
+                } else {
+                    self.currentSearchPredicate = nil
+                }
+
+                if self.bottomToolbarState != .editing {
+                    let isHidePredicate = NSPredicate(format: "isHide == NO OR isHide == nil")
+                    predicates.append(isHidePredicate)
+                }
+
+                let compoundPredicate = predicates.isEmpty ? nil :
+                    NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
+
+                // フェッチしてテーブル更新
+                self.fetchFolders(predicate: compoundPredicate)
+            }
+
+            return UIMenu(title: "", children: [addFolder, selectAction, hide, delete])
         }
     }
 
@@ -102,14 +156,27 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         newFolder.folderName = name
         newFolder.parent = parent
         newFolder.sortIndex = Int64((parent.children?.count ?? 0))
-        
-        // 親がいれば親の level + 1、親がいなければ 0
-        newFolder.level = (parent.level) + 1
+        newFolder.level = parent.level + 1
         
         do {
             try context.save()
-            buildVisibleFlattenedFolders() // これで level が反映された状態で表示
-            tableView.reloadData()
+            
+            // 親フォルダを展開状態にする
+            if !parent.isExpanded {
+                toggleFolder(parent)
+            } else {
+                // すでに開いている場合は、子だけ表示されるように再構築
+                buildVisibleFlattenedFolders()
+                tableView.reloadData()
+            }
+
+            // 追加した子フォルダまでスクロール
+            if let newIndex = visibleFlattenedFolders.firstIndex(of: newFolder) {
+                let startRow = normalBefore.count
+                let indexPath = IndexPath(row: startRow + newIndex, section: 0)
+                tableView.scrollToRow(at: indexPath, at: .middle, animated: true)
+            }
+            
         } catch {
             print("Failed to add child folder:", error)
         }
@@ -170,36 +237,71 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     
     func tableView(_ tableView: UITableView,
                    trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath)
-                   -> UISwipeActionsConfiguration? {
+    -> UISwipeActionsConfiguration? {
 
-        let row = indexPath.row
-        let folderStartIndex = normalBefore.count
-        let folderEndIndex = folderStartIndex + visibleFlattenedFolders.count
+        // ✅ 検索中かどうかで対象フォルダを取得
+        let folder: Folder?
+        if isSearching {
+            let level = sortedLevels[indexPath.section]
+            folder = groupedByLevel[level]?[indexPath.row]
+        } else {
+            let folderStartIndex = normalBefore.count
+            let folderEndIndex = folderStartIndex + visibleFlattenedFolders.count
+            if indexPath.row >= folderStartIndex && indexPath.row < folderEndIndex {
+                folder = visibleFlattenedFolders[indexPath.row - folderStartIndex]
+            } else {
+                folder = nil
+            }
+        }
 
-        // CoreData フォルダ以外（normalBefore, normalAfter）はスワイプ不可
-        guard row >= folderStartIndex && row < folderEndIndex else { return nil }
+        guard let folder = folder else { return nil }
 
-        // タプルではなく Folder そのもの
-        let folder = visibleFlattenedFolders[row - folderStartIndex]
-
-        // 削除アクション
-        let deleteAction = UIContextualAction(style: .destructive, title: "削除") { action, view, completion in
-            self.deleteFolder(folder)
+        // ✅ 削除アクション
+        let deleteAction = UIContextualAction(style: .destructive, title: "削除") { _, _, completion in
+            self.context.delete(folder)
+            try? self.context.save()
+            self.fetchFolders()
             completion(true)
         }
 
-        // 非表示アクション
-        let hideAction = UIContextualAction(style: .normal, title: "非表示") { action, view, completion in
-            self.hideFolder(folder)
+        // ✅ 非表示アクション
+        let hideAction = UIContextualAction(style: .normal, title: folder.isHide ? "表示" : "非表示") { [weak self] _, _, completion in
+            guard let self = self else { completion(true); return }
+
+            folder.isHide.toggle()
+            try? self.context.save()
+            
+            let searchText = self.searchBar.text ?? ""
+            self.isSearching = !searchText.isEmpty
+
+            var predicates: [NSPredicate] = []
+
+            if !searchText.isEmpty {
+                let searchPredicate = NSPredicate(format: "folderName CONTAINS[c] %@", searchText)
+                predicates.append(searchPredicate)
+                self.currentSearchPredicate = searchPredicate
+            } else {
+                self.currentSearchPredicate = nil
+            }
+
+            if self.bottomToolbarState != .editing {
+                let isHidePredicate = NSPredicate(format: "isHide == NO OR isHide == nil")
+                predicates.append(isHidePredicate)
+            }
+
+            let compoundPredicate = predicates.isEmpty ? nil :
+                NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
+
+            self.fetchFolders(predicate: compoundPredicate)
             completion(true)
         }
-                       
-        hideAction.backgroundColor = .gray
 
-        let configuration = UISwipeActionsConfiguration(actions: [deleteAction, hideAction])
-        configuration.performsFirstActionWithFullSwipe = false
-        return configuration
+
+        hideAction.backgroundColor = .systemGray
+
+        return UISwipeActionsConfiguration(actions: [deleteAction, hideAction])
     }
+
 
 
 
@@ -377,15 +479,18 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             }
         }
     }
+    
+    private var currentSearchPredicate: NSPredicate?
+
     // MARK: - Actions
     @objc private func startEditing() {
         bottomToolbarState = .editing
         
         // 検索中でなければフォルダを再フェッチ
-        if !isSearching {
-            fetchFolders()
+        //if !isSearching {
+            fetchFolders(predicate: currentSearchPredicate)
             sanitizeExpandedState()
-        }
+        //}
 
         tableView.reloadData()
     }
@@ -409,14 +514,37 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
         bottomToolbarState = .normal
         
         // 選択アイテムをクリア（安全のため）
-        selectedFolders.removeAll()
+        //selectedFolders.removeAll()
         
         // データ再取得
-        fetchFolders()
+        //fetchFolders()
         
         // 展開状態を整理（存在しないフォルダUUIDを除外）
-        sanitizeExpandedState()
+        //fetchFolders(predicate: currentSearchPredicate)  // ここで保持した検索条件を渡す
         
+        let searchText = searchBar.text ?? ""
+        isSearching = !searchText.isEmpty
+
+        var predicates: [NSPredicate] = []
+
+        if !searchText.isEmpty {
+            let searchPredicate = NSPredicate(format: "folderName CONTAINS[c] %@", searchText)
+            predicates.append(searchPredicate)
+            currentSearchPredicate = searchPredicate
+        } else {
+            currentSearchPredicate = nil
+        }
+
+        if bottomToolbarState != .editing {
+            let isHidePredicate = NSPredicate(format: "isHide == NO OR isHide == nil")
+            predicates.append(isHidePredicate)
+        }
+
+        let compoundPredicate = predicates.isEmpty ? nil :
+            NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
+
+        fetchFolders(predicate: compoundPredicate)
+
         // flattenを再構築（非表示フォルダを除外して再表示）
         //buildVisibleFlattenedFolders()
         
@@ -712,6 +840,8 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     private func fetchFolders(predicate: NSPredicate? = nil) {
         let request: NSFetchRequest<Folder> = Folder.fetchRequest()
         
+        // MARK: - sortDescriptors
+        
         // ソートキーの決定
         let sortKey: String
         switch currentSort {
@@ -743,9 +873,33 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             }
         }*/
         
+        // MARK: - predicate
+        
         if let predicate = predicate {
             request.predicate = predicate
         }
+        
+        /*if let text = searchBar.text, !text.isEmpty {
+            let searchPredicate = NSPredicate(format: "folderName CONTAINS[c] %@", text)
+            predicates.append(searchPredicate)
+            currentSearchPredicate = searchPredicate
+        } else {
+            currentSearchPredicate = nil
+        }
+
+        if bottomToolbarState != .editing {
+            let isHidePredicate = NSPredicate(format: "isHide == NO OR isHide == nil")
+            predicates.append(isHidePredicate)
+        }
+
+        let compoundPredicate = predicates.isEmpty ? nil :
+            NSCompoundPredicate(andPredicateWithSubpredicates: predicates)*/
+        
+        ///***
+        
+        //request.predicate = compoundPredicate
+        
+        ///***
 
         fetchedResultsController = NSFetchedResultsController(
             fetchRequest: request,
@@ -759,9 +913,9 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             try fetchedResultsController.performFetch()
 
             // ✅ ここで配列を確実に再構築
-            visibleFlattenedFolders.removeAll()
+            /*visibleFlattenedFolders.removeAll()
             groupedByLevel.removeAll()
-            sortedLevels.removeAll()
+            sortedLevels.removeAll()*/
 
             if isSearching {
                 groupFoldersByLevel()
@@ -1310,52 +1464,49 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     
     // MARK: - Toggle Folder（展開／折りたたみ）　トグル
     func toggleFolder(_ folder: Folder) {
+        // 現在の可視フォルダを保存
+        let oldVisible = visibleFlattenedFolders
+
+        // 展開状態をトグル
         folder.isExpanded.toggle()
         expandedState[folder.uuid] = folder.isExpanded
 
-        // 親のインデックスを取得
-        guard let parentIndex = visibleFlattenedFolders.firstIndex(of: folder) else { return }
+        // 新しい可視フォルダを再構築
+        buildVisibleFlattenedFolders()
+        let newVisible = visibleFlattenedFolders
 
+        // もし「normalBefore」など先頭部分があるなら補正
+        let startRow = normalBefore.count
+
+        // 差分を求める
+        var deleteIndexPaths: [IndexPath] = []
+        var insertIndexPaths: [IndexPath] = []
+
+        for (i, f) in oldVisible.enumerated() where !newVisible.contains(f) {
+            deleteIndexPaths.append(IndexPath(row: startRow + i, section: 0))
+        }
+        for (i, f) in newVisible.enumerated() where !oldVisible.contains(f) {
+            insertIndexPaths.append(IndexPath(row: startRow + i, section: 0))
+        }
+
+        // アニメーション更新
         tableView.beginUpdates()
-
         if folder.isExpanded {
-            // 子を取得して挿入
-            if let children = folder.children as? Set<Folder> {
-                let sortedChildren = Array(children).sorted { $0.sortIndex < $1.sortIndex }
-                var insertIndexPaths: [IndexPath] = []
-                for (offset, child) in sortedChildren.enumerated() {
-                    visibleFlattenedFolders.insert(child, at: parentIndex + offset + 1)
-                    insertIndexPaths.append(IndexPath(row: parentIndex + offset + 1, section: 0))
-                }
-                tableView.insertRows(at: insertIndexPaths, with: .fade)
-            }
+            tableView.insertRows(at: insertIndexPaths, with: .fade)
         } else {
-            // 子孫を全削除
-            let descendants = allDescendants(of: folder)
-            var deleteIndexPaths: [IndexPath] = []
-            for descendant in descendants {
-                if let index = visibleFlattenedFolders.firstIndex(of: descendant) {
-                    deleteIndexPaths.append(IndexPath(row: index, section: 0))
-                }
-            }
-            for indexPath in deleteIndexPaths.sorted(by: { $0.row > $1.row }) {
-                visibleFlattenedFolders.remove(at: indexPath.row)
-            }
             tableView.deleteRows(at: deleteIndexPaths, with: .fade)
         }
-
         tableView.endUpdates()
-        
-    }
-    private func allDescendants(of folder: Folder) -> [Folder] {
-        guard let children = folder.children as? Set<Folder> else { return [] }
-        var all = Array(children)
-        for child in children {
-            all += allDescendants(of: child)
-        }
-        return all
-    }
 
+        // 矢印回転
+        if let index = newVisible.firstIndex(of: folder),
+           let cell = tableView.cellForRow(at: IndexPath(row: startRow + index, section: 0)) as? CustomCell {
+            UIView.animate(withDuration: 0.25) {
+                cell.chevronIcon
+                    .transform = folder.isExpanded ? CGAffineTransform(rotationAngle: .pi / 2) : .identity
+            }
+        }
+    }
 
 
     // 全子孫を取得
@@ -1483,44 +1634,28 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     private var filteredNormalAfter: [String] = []
     
     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
-        isSearching = !searchText.isEmpty
+            isSearching = !searchText.isEmpty
 
-        var predicates: [NSPredicate] = []
+            var predicates: [NSPredicate] = []
 
-        // Core Data 検索条件
-        if !searchText.isEmpty {
-            let searchPredicate = NSPredicate(format: "folderName CONTAINS[c] %@", searchText)
-            predicates.append(searchPredicate)
-        }
-
-        // 編集モードでなければ非表示フォルダ除外
-        if bottomToolbarState != .editing {
-            let isHidePredicate = NSPredicate(format: "isHide == NO OR isHide == nil")
-            predicates.append(isHidePredicate)
-        }
-
-        let compoundPredicate = predicates.isEmpty ? nil :
-            NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
-
-        // Core Data フェッチ
-        fetchFolders(predicate: compoundPredicate)
-
-        // 通常セル検索
-        /*if searchText.isEmpty {
-            filteredNormalBefore = normalBefore
-            filteredNormalAfter = normalAfter
-        } else {
-            filteredNormalBefore = normalBefore.filter {
-                $0.localizedCaseInsensitiveContains(searchText)
+            if !searchText.isEmpty {
+                let searchPredicate = NSPredicate(format: "folderName CONTAINS[c] %@", searchText)
+                predicates.append(searchPredicate)
+                currentSearchPredicate = searchPredicate
+            } else {
+                currentSearchPredicate = nil
             }
-            filteredNormalAfter = normalAfter.filter {
-                $0.localizedCaseInsensitiveContains(searchText)
+
+            if bottomToolbarState != .editing {
+                let isHidePredicate = NSPredicate(format: "isHide == NO OR isHide == nil")
+                predicates.append(isHidePredicate)
             }
-        }*/
 
-        tableView.reloadData()
-    }
+            let compoundPredicate = predicates.isEmpty ? nil :
+                NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
 
+            fetchFolders(predicate: compoundPredicate)
+        }
 
     
     //***基本プロパティ
