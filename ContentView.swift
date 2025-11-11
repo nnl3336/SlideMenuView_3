@@ -610,7 +610,7 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                 self.currentSort = .order
                 self.tableView.setEditing(true, animated: true)
                 self.tableView.allowsSelectionDuringEditing = true
-                         self.bottomToolbarState = .editing
+                //self.bottomToolbarState = .editing
                 self.fetchFolders()
                 self.sortButton?.menu = self.makeSortMenu()
             },
@@ -1323,9 +1323,14 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                     : .clear
 
                 // 矢印タップのハンドリング
+                /*cell.chevronTapped = { [weak self] in
+                    self?.toggleFolder(folder)
+                }*/
                 cell.chevronTapped = { [weak self] in
                     self?.toggleFolder(folder)
+                    cell.rotateChevron(expanded: folder.isExpanded)
                 }
+                
                 // ✅ 編集モードのときだけスイッチを表示
                 if bottomToolbarState == .editing {
                     cell.accessoryView = cell.hideSwitch
@@ -1464,47 +1469,30 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     
     // MARK: - Toggle Folder（展開／折りたたみ）　トグル
     func toggleFolder(_ folder: Folder) {
-        // 現在の可視フォルダを保存
-        let oldVisible = visibleFlattenedFolders
+        guard let folderIndex = visibleFlattenedFolders.firstIndex(where: { $0.objectID == folder.objectID }) else { return }
+        let startRow = normalBefore.count + folderIndex
 
-        // 展開状態をトグル
         folder.isExpanded.toggle()
         expandedState[folder.uuid] = folder.isExpanded
-
-        // 新しい可視フォルダを再構築
         buildVisibleFlattenedFolders()
-        let newVisible = visibleFlattenedFolders
 
-        // もし「normalBefore」など先頭部分があるなら補正
-        let startRow = normalBefore.count
-
-        // 差分を求める
-        var deleteIndexPaths: [IndexPath] = []
-        var insertIndexPaths: [IndexPath] = []
-
-        for (i, f) in oldVisible.enumerated() where !newVisible.contains(f) {
-            deleteIndexPaths.append(IndexPath(row: startRow + i, section: 0))
-        }
-        for (i, f) in newVisible.enumerated() where !oldVisible.contains(f) {
-            insertIndexPaths.append(IndexPath(row: startRow + i, section: 0))
+        // 子孫だけ抽出
+        let descendants = visibleFlattenedFolders.dropFirst(folderIndex + 1).prefix {
+            $0.level > folder.level
         }
 
-        // アニメーション更新
-        tableView.beginUpdates()
-        if folder.isExpanded {
-            tableView.insertRows(at: insertIndexPaths, with: .fade)
-        } else {
-            tableView.deleteRows(at: deleteIndexPaths, with: .fade)
-        }
-        tableView.endUpdates()
+        let indexPaths = descendants.enumerated().map { IndexPath(row: startRow + 1 + $0.offset, section: 0) }
 
-        // 矢印回転
-        if let index = newVisible.firstIndex(of: folder),
-           let cell = tableView.cellForRow(at: IndexPath(row: startRow + index, section: 0)) as? CustomCell {
-            UIView.animate(withDuration: 0.25) {
-                cell.chevronIcon
-                    .transform = folder.isExpanded ? CGAffineTransform(rotationAngle: .pi / 2) : .identity
+        tableView.performBatchUpdates {
+            if folder.isExpanded {
+                tableView.insertRows(at: indexPaths, with: .fade)
+            } else {
+                tableView.deleteRows(at: indexPaths.reversed(), with: .fade)
             }
+        }
+
+        if let cell = tableView.cellForRow(at: IndexPath(row: startRow, section: 0)) as? CustomCell {
+            cell.rotateChevron(expanded: folder.isExpanded)
         }
     }
 
