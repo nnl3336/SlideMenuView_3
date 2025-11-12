@@ -1294,9 +1294,14 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             // normalBefore
             if row < normalBefore.count {
                 let cell = tableView.dequeueReusableCell(withIdentifier: "Cell", for: indexPath)
-                cell.textLabel?.text = normalBefore[row]
+                let text = normalBefore[row]
+                cell.textLabel?.attributedText = NSAttributedString(
+                    string: text,
+                    attributes: [.font: UIFont.boldSystemFont(ofSize: 17)]
+                )
                 return cell
             }
+
             // Core Data フォルダ
             let folderStartIndex = normalBefore.count
             let folderEndIndex = folderStartIndex + visibleFlattenedFolders.count
@@ -1316,37 +1321,28 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
                     tintColor: .systemBlue
                 )
 
-                // 選択状態の反映
                 cell.selectionStyle = .none
                 cell.contentView.backgroundColor = selectedFolders.contains(folder)
                     ? UIColor.systemBlue.withAlphaComponent(0.3)
                     : .clear
 
-                // 矢印タップのハンドリング
-                /*cell.chevronTapped = { [weak self] in
-                    self?.toggleFolder(folder)
-                }*/
                 cell.chevronTapped = { [weak self] in
                     self?.toggleFolder(folder)
                     cell.rotateChevron(expanded: folder.isExpanded)
                 }
                 
-                // ✅ 編集モードのときだけスイッチを表示
                 if bottomToolbarState == .editing {
                     cell.accessoryView = cell.hideSwitch
                     cell.hideSwitch.isOn = folder.isHide
                     cell.hideSwitchChanged = { [weak self] isOn in
                         guard let self = self else { return }
                         folder.isHide = isOn
-
-                        // 明示的に context を取得して保存
-                        //if let context = folder.managedObjectContext {
-                            do {
-                                try context.save()
-                                print("✅ isHide 保存成功 (\(isOn))")
-                            } catch {
-                                print("❌ isHide 保存失敗:", error)
-                            }
+                        do {
+                            try context.save()
+                            print("✅ isHide 保存成功 (\(isOn))")
+                        } catch {
+                            print("❌ isHide 保存失敗:", error)
+                        }
                     }
                 } else {
                     cell.accessoryView = nil
@@ -1358,9 +1354,14 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
             // normalAfter
             let afterIndex = row - folderEndIndex
             let cell = tableView.dequeueReusableCell(withIdentifier: "Cell", for: indexPath)
-            cell.textLabel?.text = normalAfter[afterIndex]
+            let text = normalAfter[afterIndex]
+            cell.textLabel?.attributedText = NSAttributedString(
+                string: text,
+                attributes: [.font: UIFont.boldSystemFont(ofSize: 17)]
+            )
             return cell
         }
+
     }
     
     /*func updateVisibleFolders() {
@@ -1469,31 +1470,50 @@ class FolderViewController: UIViewController, UITableViewDataSource, UITableView
     
     // MARK: - Toggle Folder（展開／折りたたみ）　トグル
     func toggleFolder(_ folder: Folder) {
-        guard let folderIndex = visibleFlattenedFolders.firstIndex(where: { $0.objectID == folder.objectID }) else { return }
-        let startRow = normalBefore.count + folderIndex
+        // 現在の可視リストを保持
+        let oldVisible = visibleFlattenedFolders
 
+        // 展開状態をトグル
         folder.isExpanded.toggle()
         expandedState[folder.uuid] = folder.isExpanded
+
+        // 新しい可視リストを再構築
         buildVisibleFlattenedFolders()
+        let newVisible = visibleFlattenedFolders
 
-        // 子孫だけ抽出
-        let descendants = visibleFlattenedFolders.dropFirst(folderIndex + 1).prefix {
-            $0.level > folder.level
-        }
+        let startRow = normalBefore.count
 
-        let indexPaths = descendants.enumerated().map { IndexPath(row: startRow + 1 + $0.offset, section: 0) }
+        // --- 差分を求める ---
+        var deleteIndexPaths: [IndexPath] = []
+        var insertIndexPaths: [IndexPath] = []
 
-        tableView.performBatchUpdates {
-            if folder.isExpanded {
-                tableView.insertRows(at: indexPaths, with: .fade)
-            } else {
-                tableView.deleteRows(at: indexPaths.reversed(), with: .fade)
+        // 1️⃣ oldVisible にあるが newVisible にない → 削除
+        for f in oldVisible where !newVisible.contains(f) {
+            if let oldIndex = oldVisible.firstIndex(of: f) {
+                deleteIndexPaths.append(IndexPath(row: startRow + oldIndex, section: 0))
             }
         }
 
-        if let cell = tableView.cellForRow(at: IndexPath(row: startRow, section: 0)) as? CustomCell {
-            cell.rotateChevron(expanded: folder.isExpanded)
+        // 2️⃣ newVisible にあるが oldVisible にない → 挿入
+        for f in newVisible where !oldVisible.contains(f) {
+            if let newIndex = newVisible.firstIndex(of: f) {
+                insertIndexPaths.append(IndexPath(row: startRow + newIndex, section: 0))
+            }
         }
+
+        // 🧩 順番を調整しないと UITableView がクラッシュ or 挿入位置ズレ
+        deleteIndexPaths.sort { $0.row > $1.row }  // 削除は後ろから
+        insertIndexPaths.sort { $0.row < $1.row }  // 挿入は前から
+
+        // --- 更新アニメーション ---
+        tableView.performBatchUpdates({
+            if !deleteIndexPaths.isEmpty {
+                tableView.deleteRows(at: deleteIndexPaths, with: .fade)
+            }
+            if !insertIndexPaths.isEmpty {
+                tableView.insertRows(at: insertIndexPaths, with: .fade)
+            }
+        }, completion: nil)
     }
 
 
